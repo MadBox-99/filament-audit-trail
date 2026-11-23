@@ -51,6 +51,7 @@ abstract class TestCase extends Orchestra
     {
         $app['config']->set('app.key', 'base64:'.base64_encode(str_repeat('a', 32)));
         $app['config']->set('database.default', 'testing');
+        $app['config']->set('cache.default', 'array');
         $app['config']->set('auth.providers.users.model', User::class);
     }
 

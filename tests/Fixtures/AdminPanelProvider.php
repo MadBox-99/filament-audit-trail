@@ -28,6 +28,7 @@ class AdminPanelProvider extends PanelProvider
             ->tenant(Team::class)
             ->login()
             ->pages([Dashboard::class])
+            ->resources([PostResource::class])
             ->plugins([
                 FilamentAuditTrailPlugin::make(),
             ])

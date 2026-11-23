@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
 use Madbox99\FilamentAuditTrail\Listeners\AuthEventSubscriber;
 use Madbox99\FilamentAuditTrail\Listeners\ModelChangeListener;
+use Madbox99\FilamentAuditTrail\Livewire\ActionCallHook;
 use Madbox99\FilamentAuditTrail\Support\AuditRecorder;
 
 final class FilamentAuditTrailServiceProvider extends ServiceProvider
@@ -32,6 +33,8 @@ final class FilamentAuditTrailServiceProvider extends ServiceProvider
                 fn (string $event, array $payload) => $this->app->make(ModelChangeListener::class)->handle($event, $payload),
             );
         }
+
+        $this->app->make(ActionCallHook::class)->register();
 
         if ($this->app->runningInConsole()) {
             $this->publishes([
