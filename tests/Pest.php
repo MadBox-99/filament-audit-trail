@@ -88,3 +88,28 @@ function evidence(int $userId, string $at, string $key, array $overrides = []): 
         ...$overrides,
     ]);
 }
+
+function insertTeam(string $createdAt = '2026-01-01 08:00:00'): int
+{
+    return (int) DB::table('teams')->insertGetId(['name' => 'T', 'created_at' => $createdAt, 'updated_at' => $createdAt]);
+}
+
+/**
+ * @param  array<string, mixed>  $attributes
+ */
+function insertPost(int $teamId, ?int $userId, string $createdAt, array $attributes = []): int
+{
+    return (int) DB::table('posts')->insertGetId([
+        'team_id' => $teamId,
+        'user_id' => $userId,
+        'title' => 'P',
+        'created_at' => $createdAt,
+        'updated_at' => $createdAt,
+        ...$attributes,
+    ]);
+}
+
+function addMember(int $teamId, int $userId, ?string $since = '2026-01-01 08:00:00'): void
+{
+    DB::table('team_user')->insert(['team_id' => $teamId, 'user_id' => $userId, 'created_at' => $since, 'updated_at' => $since]);
+}

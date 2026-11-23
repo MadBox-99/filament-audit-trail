@@ -16,6 +16,8 @@ use Throwable;
  */
 final class ReconstructionContext
 {
+    public const string UNKNOWN_TEAM_CREATION_NOTE = 'team creation time unknown; bootstrap check not applied';
+
     /** @var array<int, array{email: string|null, created_at: CarbonImmutable|null, email_verified_at: CarbonImmutable|null}>|null */
     private ?array $users = null;
 
@@ -24,6 +26,9 @@ final class ReconstructionContext
 
     /** @var list<string>|null */
     private ?array $excludedRegexes = null;
+
+    /** @var array<int, CarbonImmutable|null>|null */
+    private ?array $teams = null;
 
     public function __construct(
         private readonly ?CarbonImmutable $since = null,
@@ -176,6 +181,51 @@ final class ReconstructionContext
         }
 
         return $this->users;
+    }
+
+    /**
+     * When the team was really created; null if unknown, missing or a placeholder value.
+     */
+    public function teamCreatedAt(int $teamId): ?CarbonImmutable
+    {
+        if ($this->teams === null) {
+            $this->teams = [];
+            /** @var string $table */
+            $table = config('audit-trail.reconstruct.teams_table', 'teams');
+            $schema = $this->connection()->getSchemaBuilder();
+
+            if ($schema->hasTable($table) && $schema->hasColumn($table, 'created_at')) {
+                foreach ($this->connection()->table($table)->select(['id', 'created_at'])->orderBy('id')->cursor() as $row) {
+                    $row = (array) $row;
+
+                    if (is_numeric($row['id'] ?? null)) {
+                        $this->teams[(int) $row['id']] = $this->parseTimestamp($row['created_at'] ?? null);
+                    }
+                }
+            }
+        }
+
+        $createdAt = $this->teams[$teamId] ?? null;
+
+        return $this->isIgnoredTimestamp($createdAt) ? null : $createdAt;
+    }
+
+    /**
+     * Whether a record of the team was made in the seconds after the team itself
+     * (`team_creation_grace_seconds`): data the system seeds for a new team, not
+     * a person's work. Null when the team's creation time is unknown.
+     */
+    public function isTeamBootstrap(int $teamId, CarbonImmutable $at): ?bool
+    {
+        $createdAt = $this->teamCreatedAt($teamId);
+
+        if ($createdAt === null) {
+            return null;
+        }
+
+        $grace = (int) config('audit-trail.reconstruct.team_creation_grace_seconds', 120);
+
+        return $at->lte($createdAt->addSeconds($grace));
     }
 
     /**

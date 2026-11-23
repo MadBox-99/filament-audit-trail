@@ -11,6 +11,8 @@ it('runs all rules and prints the report', function (): void {
         ->expectsOutputToContain('account_created')
         ->expectsOutputToContain('imports_exports')
         ->expectsOutputToContain('activity_log')
+        ->expectsOutputToContain('actor_columns')
+        ->expectsOutputToContain('sole_member_team')
         ->assertExitCode(0);
 
     expect(AuditEvent::query()->count())->toBe(1);
@@ -47,9 +49,8 @@ it('rejects an unknown rule name', function (): void {
     $this->artisan('audit-trail:reconstruct', ['--rule' => ['nope']])->assertExitCode(1);
 });
 
-it('warns that --sso-file and --suggest are not supported yet', function (): void {
-    $this->artisan('audit-trail:reconstruct', ['--sso-file' => 'x.json', '--suggest' => true, '--dry-run' => true])
+it('warns that --sso-file is not supported yet', function (): void {
+    $this->artisan('audit-trail:reconstruct', ['--sso-file' => 'x.json', '--dry-run' => true])
         ->expectsOutputToContain('--sso-file')
-        ->expectsOutputToContain('--suggest')
         ->assertExitCode(0);
 });

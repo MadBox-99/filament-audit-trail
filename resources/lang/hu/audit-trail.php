@@ -67,6 +67,15 @@ return [
         'evidence_key' => 'Bizonyíték kulcs',
     ],
     'reconstruct' => [
+        'suggest' => [
+            'intro' => "Csak javaslat: nézd át a táblákat, és a megbízhatókat másold a config/audit-trail.php 'reconstruct' részébe.",
+            'actor_columns' => 'Felhasználó-oszlopos táblák (actor_columns)',
+            'sole_member_tables' => 'Csapatos táblák (sole_member_tables)',
+            'table' => 'Tábla',
+            'column' => 'Oszlop',
+            'rows' => 'Sorok',
+            'snippet' => 'Config-részlet a config/audit-trail.php-hez (reconstruct):',
+        ],
         'not_supported' => 'A(z) :option még nem támogatott, figyelmen kívül marad.',
         'dry_run' => 'Próbafutás: semmi nem íródott ki.',
         'invalid_time' => 'Érvénytelen --since vagy --until érték.',

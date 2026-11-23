@@ -16,6 +16,9 @@ final readonly class EvidenceRecord
     /**
      * @param  array<array-key, mixed>  $properties
      * @param  array<string, mixed>  $evidence  rule, table, id, column, note
+     * @param  string|null  $rejection  set by a rule that found the record but knows it is no
+     *                                  evidence of a person (e.g. `team_bootstrap`); the
+     *                                  Reconstructor rejects it under this reason
      */
     public function __construct(
         public AuditEventType $type,
@@ -30,6 +33,7 @@ final readonly class EvidenceRecord
         public string $evidenceKey,
         public bool $inferred = false,
         public ?string $action = null,
+        public ?string $rejection = null,
     ) {
         if (trim($evidenceKey) === '') {
             throw new InvalidArgumentException('An evidence record needs a non-empty evidence key.');

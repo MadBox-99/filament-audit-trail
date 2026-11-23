@@ -67,6 +67,15 @@ return [
         'evidence_key' => 'Evidence key',
     ],
     'reconstruct' => [
+        'suggest' => [
+            'intro' => "Suggestion only: review the tables, then copy the ones you trust into config/audit-trail.php under 'reconstruct'.",
+            'actor_columns' => 'Tables with a user column (actor_columns)',
+            'sole_member_tables' => 'Tables with a team (sole_member_tables)',
+            'table' => 'Table',
+            'column' => 'Column',
+            'rows' => 'Rows',
+            'snippet' => 'Config snippet for config/audit-trail.php (reconstruct):',
+        ],
         'not_supported' => ':option is not supported yet; it is ignored.',
         'dry_run' => 'Dry run: nothing was written.',
         'invalid_time' => 'Invalid --since or --until value.',

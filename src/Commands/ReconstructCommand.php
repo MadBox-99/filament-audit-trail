@@ -10,8 +10,11 @@ use Madbox99\FilamentAuditTrail\Reconstruction\ReconstructionContext;
 use Madbox99\FilamentAuditTrail\Reconstruction\Reconstructor;
 use Madbox99\FilamentAuditTrail\Reconstruction\Rules\AccountCreatedRule;
 use Madbox99\FilamentAuditTrail\Reconstruction\Rules\ActivityLogRule;
+use Madbox99\FilamentAuditTrail\Reconstruction\Rules\ActorColumnsRule;
 use Madbox99\FilamentAuditTrail\Reconstruction\Rules\ImportExportRule;
 use Madbox99\FilamentAuditTrail\Reconstruction\Rules\Rule;
+use Madbox99\FilamentAuditTrail\Reconstruction\Rules\SoleMemberTeamRule;
+use Madbox99\FilamentAuditTrail\Reconstruction\SchemaInspector;
 use Throwable;
 
 final class ReconstructCommand extends Command
@@ -37,10 +40,12 @@ final class ReconstructCommand extends Command
             return self::FAILURE;
         }
 
-        foreach (['sso-file', 'suggest'] as $option) {
-            if ($this->option($option) !== null && $this->option($option) !== false) {
-                $this->components->warn(__('audit-trail::audit-trail.reconstruct.not_supported', ['option' => '--'.$option]));
-            }
+        if ($this->option('suggest') === true) {
+            return $this->suggest();
+        }
+
+        if ($this->option('sso-file') !== null) {
+            $this->components->warn(__('audit-trail::audit-trail.reconstruct.not_supported', ['option' => '--sso-file']));
         }
 
         $rules = $this->rules();
@@ -113,7 +118,50 @@ final class ReconstructCommand extends Command
             new ActivityLogRule,
             new ImportExportRule,
             new AccountCreatedRule,
+            new ActorColumnsRule,
+            new SoleMemberTeamRule,
         ];
+    }
+
+    /**
+     * Prints table candidates for the actor_columns and sole_member_team rules
+     * and a config snippet to paste. Writes nothing.
+     */
+    private function suggest(): int
+    {
+        $inspector = app(SchemaInspector::class);
+        $actors = $inspector->actorColumnCandidates();
+        $teams = $inspector->teamTableCandidates();
+        $label = fn (string $key): string => __('audit-trail::audit-trail.reconstruct.suggest.'.$key);
+
+        $this->components->warn($label('intro'));
+        $this->components->info($label('actor_columns'));
+        $this->table(
+            [$label('table'), $label('column'), $label('rows')],
+            array_map(fn (string $table, string $column): array => [$table, $column, $inspector->rowCount($table)], array_keys($actors), $actors),
+        );
+
+        $this->components->info($label('sole_member_tables'));
+        $this->table(
+            [$label('table'), $label('rows')],
+            array_map(fn (string $table): array => [$table, $inspector->rowCount($table)], $teams),
+        );
+
+        $snippet = ["    'actor_columns' => ["];
+        foreach ($actors as $table => $column) {
+            $snippet[] = '        '.var_export($table, true).' => '.var_export($column, true).',';
+        }
+        $snippet[] = '    ],';
+        $snippet[] = "    'sole_member_tables' => [";
+        foreach ($teams as $table) {
+            $snippet[] = '        '.var_export($table, true).',';
+        }
+        $snippet[] = '    ],';
+
+        $this->components->info($label('snippet'));
+        $this->line(implode(PHP_EOL, $snippet));
+
+        return self::SUCCESS;
     }
 
     private function time(string $option, bool $endOfDay): ?CarbonImmutable

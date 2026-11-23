@@ -112,6 +112,10 @@ final class Reconstructor
 
     private function rejectionReason(EvidenceRecord $record): ?string
     {
+        if ($record->rejection !== null) {
+            return $record->rejection;
+        }
+
         if ($this->context->isIgnoredTimestamp($record->occurredAt)) {
             return 'ignored_timestamp';
         }
