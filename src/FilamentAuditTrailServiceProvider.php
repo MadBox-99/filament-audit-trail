@@ -7,6 +7,7 @@ namespace Madbox99\FilamentAuditTrail;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
 use Madbox99\FilamentAuditTrail\Listeners\AuthEventSubscriber;
+use Madbox99\FilamentAuditTrail\Listeners\ModelChangeListener;
 use Madbox99\FilamentAuditTrail\Support\AuditRecorder;
 
 final class FilamentAuditTrailServiceProvider extends ServiceProvider
@@ -24,6 +25,13 @@ final class FilamentAuditTrailServiceProvider extends ServiceProvider
         $this->loadMigrationsFrom(__DIR__.'/../database/migrations');
 
         Event::subscribe(AuthEventSubscriber::class);
+
+        foreach (['created', 'updated', 'deleted', 'restored'] as $name) {
+            Event::listen(
+                'eloquent.'.$name.': *',
+                fn (string $event, array $payload) => $this->app->make(ModelChangeListener::class)->handle($event, $payload),
+            );
+        }
 
         if ($this->app->runningInConsole()) {
             $this->publishes([
