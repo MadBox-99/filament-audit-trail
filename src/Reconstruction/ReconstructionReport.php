@@ -41,10 +41,16 @@ final class ReconstructionReport
         $this->rules[$rule]['rejected'][$reason] = ($this->rules[$rule]['rejected'][$reason] ?? 0) + 1;
     }
 
-    public function accepted(string $rule, EvidenceRecord $record, ?int $userId): void
+    public function accepted(string $rule): void
     {
         $this->rules[$rule]['accepted']++;
+    }
 
+    /**
+     * Adds an accepted record of a successfully finished rule to the user statistics.
+     */
+    public function user(EvidenceRecord $record, ?int $userId): void
+    {
         if ($userId === null) {
             return;
         }

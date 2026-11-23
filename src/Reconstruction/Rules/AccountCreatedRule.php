@@ -11,7 +11,8 @@ use Madbox99\FilamentAuditTrail\Reconstruction\ReconstructionContext;
 /**
  * users.created_at → account_created, without an actor (in receiver apps the
  * account is made by the sync). On the publisher a verified registration is a
- * real sign-in: login_inferred at created_at and at email_verified_at.
+ * real sign-in: login_inferred at created_at and at email_verified_at, but
+ * only when created_at is a real (non-placeholder) value.
  */
 final class AccountCreatedRule implements Rule
 {
@@ -44,7 +45,8 @@ final class AccountCreatedRule implements Rule
                 evidenceKey: 'users:'.$id.':created',
             );
 
-            if (! $publisher || $user['email_verified_at'] === null) {
+            // A placeholder (seeded) creation time is no evidence of a registration.
+            if (! $publisher || $user['email_verified_at'] === null || $ctx->userCreatedAt($id) === null) {
                 continue;
             }
 

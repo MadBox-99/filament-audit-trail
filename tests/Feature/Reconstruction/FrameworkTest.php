@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Madbox99\FilamentAuditTrail\Enums\AuditEventType;
 use Madbox99\FilamentAuditTrail\Enums\AuditSource;
@@ -202,4 +203,53 @@ it('summarises users', function (): void {
         ['user_id' => $a, 'email' => 'a@corp.test', 'active_days' => 2],
         ['user_id' => $b, 'email' => 'b@corp.test', 'active_days' => 1],
     ]);
+});
+
+it('forgets the records of a rule that failed and was rolled back', function (): void {
+    $user = insertUser();
+    $records = array_map(fn (int $i): EvidenceRecord => evidence($user, '2026-03-01 10:00:00', 'k:'.$i), range(0, 500));
+
+    $failing = new class($records) implements Rule
+    {
+        /** @param list<EvidenceRecord> $records */
+        public function __construct(private array $records) {}
+
+        public function name(): string
+        {
+            return 'failing';
+        }
+
+        public function collect(ReconstructionContext $ctx): iterable
+        {
+            yield from $this->records;
+
+            throw new RuntimeException('boom');
+        }
+    };
+
+    $seen = new ArrayObject;
+    $probe = new class($seen) implements Rule
+    {
+        public function __construct(private ArrayObject $seen) {}
+
+        public function name(): string
+        {
+            return 'probe';
+        }
+
+        public function collect(ReconstructionContext $ctx): iterable
+        {
+            $this->seen->exchangeArray(array_map(fn (EvidenceRecord $r): string => $r->evidenceKey, $ctx->accepted()));
+
+            return [];
+        }
+    };
+
+    $report = reconstruct([$failing, $probe, fakeRule('retry', [evidence($user, '2026-03-01 10:00:00', 'k:0')])]);
+
+    expect($report->rule('failing'))->toMatchArray(['inserted' => 0, 'failed' => 500, 'error' => 'boom'])
+        ->and($seen->getArrayCopy())->toBe([])
+        ->and($report->rule('retry'))->toMatchArray(['inserted' => 1, 'existing' => 0])
+        ->and($report->topUsers())->toBe([['user_id' => $user, 'email' => DB::table('users')->value('email'), 'active_days' => 1]])
+        ->and(AuditEvent::query()->pluck('evidence_key')->all())->toBe(['k:0']);
 });

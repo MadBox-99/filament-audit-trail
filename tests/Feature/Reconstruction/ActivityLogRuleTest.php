@@ -10,6 +10,7 @@ use Madbox99\FilamentAuditTrail\Enums\AuditEventType;
 use Madbox99\FilamentAuditTrail\Enums\AuditSource;
 use Madbox99\FilamentAuditTrail\Models\AuditEvent;
 use Madbox99\FilamentAuditTrail\Reconstruction\Rules\ActivityLogRule;
+use Madbox99\FilamentAuditTrail\Tests\Fixtures\HiddenPost;
 use Madbox99\FilamentAuditTrail\Tests\Fixtures\User;
 
 beforeEach(function (): void {
@@ -125,3 +126,27 @@ it('is silently empty without an activity_log table', function (): void {
 
     expect($report->rule('activity_log'))->toMatchArray(['found' => 0, 'inserted' => 0, 'failed' => 0]);
 });
+
+it('drops attributes hidden on the subject model', function (string $subjectType): void {
+    Relation::morphMap(['hidden_post' => HiddenPost::class]);
+    $user = insertUser();
+    activity([
+        'causer_id' => $user,
+        'event' => 'updated',
+        'subject_type' => $subjectType,
+        'properties' => json_encode([
+            'attributes' => ['title' => 'new secret', 'team_id' => 2],
+            'old' => ['title' => 'old secret', 'team_id' => 1],
+        ]),
+    ]);
+
+    reconstruct([new ActivityLogRule]);
+
+    expect(AuditEvent::query()->sole()->properties)->toBe([
+        'attributes' => ['team_id' => 2],
+        'old' => ['team_id' => 1],
+    ]);
+})->with([
+    'class name' => [HiddenPost::class],
+    'morph alias' => ['hidden_post'],
+]);

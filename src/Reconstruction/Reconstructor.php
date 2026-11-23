@@ -56,7 +56,14 @@ final class Reconstructor
         $name = $rule->name();
         $report->startRule($name);
 
-        $process = function () use ($rule, $name, $dryRun, $report): void {
+        // Committed to the context, the report's user stats and the handled keys
+        // only once the rule has finished: a rolled-back rule leaves no trace.
+        /** @var list<array{EvidenceRecord, int|null}> $accepted */
+        $accepted = [];
+        /** @var array<string, true> $keys */
+        $keys = [];
+
+        $process = function () use ($rule, $name, $dryRun, $report, &$accepted, &$keys): void {
             $buffer = [];
 
             foreach ($rule->collect($this->context) as $record) {
@@ -69,17 +76,17 @@ final class Reconstructor
                     continue;
                 }
 
-                $report->accepted($name, $record, $this->context->concernedUserId($record));
-                $this->context->addAccepted($record);
+                $report->accepted($name);
+                $accepted[] = [$record, $this->context->concernedUserId($record)];
                 $buffer[] = $record;
 
                 if (count($buffer) >= self::CHUNK) {
-                    $this->flush($name, $buffer, $dryRun, $report);
+                    $this->flush($name, $buffer, $dryRun, $report, $keys);
                     $buffer = [];
                 }
             }
 
-            $this->flush($name, $buffer, $dryRun, $report);
+            $this->flush($name, $buffer, $dryRun, $report, $keys);
         };
 
         try {
@@ -91,7 +98,16 @@ final class Reconstructor
         } catch (Throwable $e) {
             report($e);
             $report->ruleFailed($name, $e->getMessage(), rolledBack: ! $dryRun);
+
+            return;
         }
+
+        foreach ($accepted as [$record, $userId]) {
+            $this->context->addAccepted($record);
+            $report->user($record, $userId);
+        }
+
+        $this->handledKeys += $keys;
     }
 
     private function rejectionReason(EvidenceRecord $record): ?string
@@ -122,8 +138,9 @@ final class Reconstructor
 
     /**
      * @param  list<EvidenceRecord>  $records
+     * @param  array<string, true>  $keys  keys handled by the current rule
      */
-    private function flush(string $rule, array $records, bool $dryRun, ReconstructionReport $report): void
+    private function flush(string $rule, array $records, bool $dryRun, ReconstructionReport $report, array &$keys): void
     {
         if ($records === []) {
             return;
@@ -134,13 +151,13 @@ final class Reconstructor
         foreach ($records as $record) {
             $key = $record->evidenceKey;
 
-            if (isset($existing[$key]) || isset($this->handledKeys[$key])) {
+            if (isset($existing[$key]) || isset($this->handledKeys[$key]) || isset($keys[$key])) {
                 $report->existing($rule);
 
                 continue;
             }
 
-            $this->handledKeys[$key] = true;
+            $keys[$key] = true;
 
             if ($dryRun) {
                 continue;

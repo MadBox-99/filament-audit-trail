@@ -37,6 +37,12 @@ final class ReconstructCommand extends Command
             return self::FAILURE;
         }
 
+        foreach (['sso-file', 'suggest'] as $option) {
+            if ($this->option($option) !== null && $this->option($option) !== false) {
+                $this->components->warn(__('audit-trail::audit-trail.reconstruct.not_supported', ['option' => '--'.$option]));
+            }
+        }
+
         $rules = $this->rules();
 
         /** @var list<string> $only */

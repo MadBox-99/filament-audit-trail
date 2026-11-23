@@ -4,17 +4,23 @@ declare(strict_types=1);
 
 namespace Madbox99\FilamentAuditTrail\Reconstruction\Rules;
 
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\Facades\DB;
 use Madbox99\FilamentAuditTrail\Enums\AuditEventType;
 use Madbox99\FilamentAuditTrail\Reconstruction\EvidenceRecord;
 use Madbox99\FilamentAuditTrail\Reconstruction\ReconstructionContext;
 use Madbox99\FilamentAuditTrail\Support\PropertySanitizer;
+use Throwable;
 
 /**
  * Lifts existing spatie/laravel-activitylog rows caused by a user.
  */
 final class ActivityLogRule implements Rule
 {
+    /** @var array<string, list<string>> */
+    private array $hidden = [];
+
     public function name(): string
     {
         return 'activity_log';
@@ -61,6 +67,7 @@ final class ActivityLogRule implements Rule
                 default => AuditEventType::ActionExecuted,
             };
 
+            $subjectType = is_string($row['subject_type'] ?? null) ? $row['subject_type'] : null;
             $properties = is_string($row['properties'] ?? null) ? json_decode($row['properties'], true) : null;
 
             yield new EvidenceRecord(
@@ -69,13 +76,40 @@ final class ActivityLogRule implements Rule
                 userId: $userId,
                 userEmail: $ctx->userEmail($userId),
                 teamId: null,
-                subjectType: is_string($row['subject_type'] ?? null) ? $row['subject_type'] : null,
+                subjectType: $subjectType,
                 subjectId: isset($row['subject_id']) && is_scalar($row['subject_id']) ? (string) $row['subject_id'] : null,
-                properties: is_array($properties) ? PropertySanitizer::sanitize($properties) : [],
+                properties: is_array($properties) ? PropertySanitizer::sanitize($properties, $this->hiddenOf($subjectType)) : [],
                 evidence: ['rule' => $this->name(), 'table' => $table, 'id' => $row['id'], 'column' => 'created_at'],
                 evidenceKey: 'activity_log:'.$row['id'],
                 action: $type === AuditEventType::ActionExecuted ? mb_substr($event, 0, 255) : null,
             );
         }
+    }
+
+    /**
+     * The subject model's $hidden attributes (class name or morph alias).
+     *
+     * @return list<string>
+     */
+    private function hiddenOf(?string $subjectType): array
+    {
+        if ($subjectType === null) {
+            return [];
+        }
+
+        if (! array_key_exists($subjectType, $this->hidden)) {
+            $class = Relation::getMorphedModel($subjectType) ?? $subjectType;
+
+            try {
+                $this->hidden[$subjectType] = class_exists($class) && is_subclass_of($class, Model::class)
+                    ? array_values((new $class)->getHidden())
+                    : [];
+            } catch (Throwable $e) {
+                report($e);
+                $this->hidden[$subjectType] = [];
+            }
+        }
+
+        return $this->hidden[$subjectType];
     }
 }

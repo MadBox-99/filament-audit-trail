@@ -67,6 +67,7 @@ return [
         'evidence_key' => 'Bizonyíték kulcs',
     ],
     'reconstruct' => [
+        'not_supported' => 'A(z) :option még nem támogatott, figyelmen kívül marad.',
         'dry_run' => 'Próbafutás: semmi nem íródott ki.',
         'invalid_time' => 'Érvénytelen --since vagy --until érték.',
         'unknown_rule' => 'Ismeretlen szabály(ok): :rules. Ismert szabályok: :known.',

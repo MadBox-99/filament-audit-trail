@@ -67,6 +67,7 @@ return [
         'evidence_key' => 'Evidence key',
     ],
     'reconstruct' => [
+        'not_supported' => ':option is not supported yet; it is ignored.',
         'dry_run' => 'Dry run: nothing was written.',
         'invalid_time' => 'Invalid --since or --until value.',
         'unknown_rule' => 'Unknown rule(s): :rules. Known rules: :known.',

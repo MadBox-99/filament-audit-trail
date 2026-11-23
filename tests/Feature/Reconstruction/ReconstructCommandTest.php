@@ -46,3 +46,10 @@ it('applies --since and --until', function (): void {
 it('rejects an unknown rule name', function (): void {
     $this->artisan('audit-trail:reconstruct', ['--rule' => ['nope']])->assertExitCode(1);
 });
+
+it('warns that --sso-file and --suggest are not supported yet', function (): void {
+    $this->artisan('audit-trail:reconstruct', ['--sso-file' => 'x.json', '--suggest' => true, '--dry-run' => true])
+        ->expectsOutputToContain('--sso-file')
+        ->expectsOutputToContain('--suggest')
+        ->assertExitCode(0);
+});

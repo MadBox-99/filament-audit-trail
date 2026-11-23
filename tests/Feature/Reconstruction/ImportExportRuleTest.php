@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 use Filament\Actions\Exports\Models\Export;
 use Filament\Actions\Imports\Models\Import;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Madbox99\FilamentAuditTrail\Enums\AuditEventType;
 use Madbox99\FilamentAuditTrail\Models\AuditEvent;
 use Madbox99\FilamentAuditTrail\Reconstruction\Rules\ImportExportRule;
+use Madbox99\FilamentAuditTrail\Tests\Fixtures\User;
 
 it('reconstructs imports and exports with their user and time', function (): void {
     $user = insertUser(['email' => 'a@corp.test']);
@@ -46,4 +48,21 @@ it('skips missing import and export tables', function (): void {
     Schema::drop('exports');
 
     expect(reconstruct([new ImportExportRule])->rule('imports_exports')['found'])->toBe(0);
+});
+
+it('attributes polymorphic import and export users only to the user model', function (): void {
+    Schema::table('imports', fn (Blueprint $t) => $t->string('user_type')->nullable());
+    Schema::table('exports', fn (Blueprint $t) => $t->string('user_type')->nullable());
+    $user = insertUser();
+    $row = ['file_name' => 'a.csv', 'file_path' => 'x', 'importer' => 'I', 'total_rows' => 1, 'user_id' => $user,
+        'created_at' => '2026-03-01 10:00:00', 'updated_at' => '2026-03-01 10:00:00'];
+    $mine = (int) DB::table('imports')->insertGetId([...$row, 'user_type' => User::class]);
+    DB::table('imports')->insert([...$row, 'user_type' => 'App\\Models\\Admin']);
+    DB::table('exports')->insert(['file_disk' => 'l', 'exporter' => 'E', 'total_rows' => 1, 'user_id' => $user,
+        'user_type' => 'App\\Models\\Admin', 'created_at' => '2026-03-01 10:00:00', 'updated_at' => '2026-03-01 10:00:00']);
+
+    $report = reconstruct([new ImportExportRule]);
+
+    expect($report->rule('imports_exports')['found'])->toBe(1)
+        ->and(AuditEvent::query()->sole()->evidence_key)->toBe('imports:'.$mine);
 });

@@ -58,3 +58,12 @@ it('skips users without a creation time', function (): void {
 
     expect(reconstruct([new AccountCreatedRule])->rule('account_created')['found'])->toBe(0);
 });
+
+it('infers no login for a placeholder creation time, even when verified', function (): void {
+    config(['audit-trail.reconstruct.publisher' => true]);
+    insertUser(['created_at' => '2025-10-10 09:00:00', 'email_verified_at' => '2026-01-05 07:40:00']);
+
+    reconstruct([new AccountCreatedRule]);
+
+    expect(AuditEvent::query()->where('event', 'login_inferred')->count())->toBe(0);
+});

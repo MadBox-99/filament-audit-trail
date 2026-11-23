@@ -34,7 +34,14 @@ final class ImportExportRule implements Rule
                 continue;
             }
 
-            foreach ($ctx->connection()->table($table)->lazyById(500) as $row) {
+            $query = $ctx->connection()->table($table);
+
+            // Filament's polymorphic user relationship: only rows owned by the user model count.
+            if ($schema->hasColumn($table, 'user_type')) {
+                $query->whereIn('user_type', $ctx->userMorphClasses());
+            }
+
+            foreach ($query->lazyById(500) as $row) {
                 $row = (array) $row;
                 $occurredAt = $ctx->parseTimestamp($row['created_at'] ?? null);
 
