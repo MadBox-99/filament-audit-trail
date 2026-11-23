@@ -2,10 +2,14 @@
 
 declare(strict_types=1);
 
+use Illuminate\Http\Request;
+use Livewire\Mechanisms\HandleRequests\HandleRequests;
 use Madbox99\FilamentAuditTrail\Enums\AuditEventType;
+use Madbox99\FilamentAuditTrail\Http\Middleware\RecordPageView;
 use Madbox99\FilamentAuditTrail\Models\AuditEvent;
 use Madbox99\FilamentAuditTrail\Tests\Fixtures\Team;
 use Madbox99\FilamentAuditTrail\Tests\Fixtures\User;
+use Symfony\Component\HttpFoundation\Response;
 
 function pageViewFixture(): array
 {
@@ -44,9 +48,30 @@ it('does not record page views for guests', function (): void {
 it('does not record livewire requests', function (): void {
     [$user] = pageViewFixture();
 
-    $this->actingAs($user)->post('/livewire/update', [], ['X-Livewire' => 'true']);
+    $response = $this->actingAs($user)->postJson(
+        app(HandleRequests::class)->getUpdateUri(),
+        ['components' => [['snapshot' => '{}', 'updates' => [], 'calls' => []]]],
+        ['X-Livewire' => 'true'],
+    );
 
-    expect(pageViews()->count())->toBe(0);
+    // The status is a 404 from Livewire's own snapshot validation, so prove the router matched instead.
+    expect(request()->route()?->getName())->toBe('default-livewire.update')
+        ->and($response->getStatusCode())->not->toBe(405)
+        ->and(pageViews()->count())->toBe(0);
+});
+
+it('does not record non-GET requests even when the response is 2xx', function (): void {
+    [$user, $team] = pageViewFixture();
+    $this->actingAs($user);
+
+    // The panel has no POST route that answers 2xx, so drive the middleware directly.
+    $response = app(RecordPageView::class)->handle(
+        Request::create('/admin/'.$team->getKey(), 'POST'),
+        fn (): Response => response('ok'),
+    );
+
+    expect($response->getStatusCode())->toBe(200)
+        ->and(pageViews()->count())->toBe(0);
 });
 
 it('does not record a non-livewire GET carrying the X-Livewire header', function (): void {
