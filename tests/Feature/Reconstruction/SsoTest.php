@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
@@ -43,6 +44,15 @@ function createPassportTables(bool $legacy = false): void
         $table->timestamps();
         $table->dateTime('expires_at')->nullable();
     });
+
+    Schema::create('oauth_auth_codes', function (Blueprint $table): void {
+        $table->char('id', 80)->primary();
+        $table->unsignedBigInteger('user_id');
+        $table->char('client_id', 36);
+        $table->text('scopes')->nullable();
+        $table->boolean('revoked');
+        $table->dateTime('expires_at')->nullable();
+    });
 }
 
 /**
@@ -53,12 +63,25 @@ function insertClient(string $id, array $attributes): void
     DB::table('oauth_clients')->insert(['id' => $id, 'name' => 'C', 'created_at' => '2026-01-01 00:00:00', ...$attributes]);
 }
 
-function insertToken(string $id, ?int $userId, string $clientId, string $createdAt): void
+/**
+ * A token and, by default, the authorization code it was exchanged for
+ * (Passport: the code expires 10 minutes after it was issued, just before the token).
+ */
+function insertToken(string $id, ?int $userId, string $clientId, string $createdAt, bool $withCode = true): void
 {
     DB::table('oauth_access_tokens')->insert([
         'id' => $id, 'user_id' => $userId, 'client_id' => $clientId,
         'created_at' => $createdAt, 'updated_at' => $createdAt,
     ]);
+
+    if ($withCode && $userId !== null) {
+        insertAuthCode('code-'.$id, $userId, $clientId, CarbonImmutable::parse($createdAt)->addMinutes(9)->format('Y-m-d H:i:s'));
+    }
+}
+
+function insertAuthCode(string $id, int $userId, string $clientId, string $expiresAt): void
+{
+    DB::table('oauth_auth_codes')->insert(['id' => $id, 'user_id' => $userId, 'client_id' => $clientId, 'revoked' => true, 'expires_at' => $expiresAt]);
 }
 
 /**
@@ -77,7 +100,7 @@ function ssoFile(array|string $entries): string
  */
 function ssoEntry(string $tokenId, ?string $uuid, ?string $email, string $host, string $createdAt): array
 {
-    return ['token_id' => $tokenId, 'user_uuid' => $uuid, 'user_email' => $email, 'app_host' => $host, 'created_at' => $createdAt];
+    return ['token_id' => $tokenId, 'user_uuid' => $uuid, 'user_email' => $email, 'app_host' => $host, 'created_at' => $createdAt, 'auth_code_id' => 'code-'.$tokenId];
 }
 
 describe('audit-trail:export-sso', function (): void {
@@ -109,8 +132,8 @@ describe('audit-trail:export-sso', function (): void {
 
         $data = json_decode(File::get($this->output), true);
         expect($data)->toBe([
-            ['token_id' => 't1', 'user_uuid' => '11111111-1111-1111-1111-111111111111', 'user_email' => 'a@corp.test', 'app_host' => 'crm.cegem360.eu', 'created_at' => '2026-03-01T09:10:00+00:00'],
-            ['token_id' => 't2', 'user_uuid' => '11111111-1111-1111-1111-111111111111', 'user_email' => 'a@corp.test', 'app_host' => 'sales.cegem360.eu', 'created_at' => '2026-03-02T10:00:00+00:00'],
+            ['token_id' => 't1', 'user_uuid' => '11111111-1111-1111-1111-111111111111', 'user_email' => 'a@corp.test', 'app_host' => 'crm.cegem360.eu', 'created_at' => '2026-03-01T09:10:00+00:00', 'auth_code_id' => 'code-t1'],
+            ['token_id' => 't2', 'user_uuid' => '11111111-1111-1111-1111-111111111111', 'user_email' => 'a@corp.test', 'app_host' => 'sales.cegem360.eu', 'created_at' => '2026-03-02T10:00:00+00:00', 'auth_code_id' => 'code-t2'],
         ])->and(File::get($this->output))->toContain("\n    ");
     });
 
@@ -139,6 +162,68 @@ describe('audit-trail:export-sso', function (): void {
         $this->artisan('audit-trail:export-sso', ['--output' => $this->output])->assertExitCode(0);
 
         expect(json_decode(File::get($this->output), true)[0]['created_at'])->toBe('2026-03-01T09:10:00+01:00');
+    });
+
+    it('exports only tokens issued for an authorization code (a real sign-in)', function (): void {
+        createPassportTables();
+        $user = insertUser();
+        $other = insertUser();
+        insertClient('c', ['redirect_uris' => json_encode(['https://crm.cegem360.eu/cb']), 'grant_types' => '["authorization_code","refresh_token"]']);
+        insertClient('c2', ['redirect_uris' => json_encode(['https://sales.cegem360.eu/cb']), 'grant_types' => '["authorization_code"]']);
+        insertToken('t-ok', $user, 'c', '2026-03-01 09:10:00');
+        insertToken('t-refresh', $user, 'c', '2026-03-01 11:00:00', withCode: false);
+        insertToken('t-late', $user, 'c', '2026-03-02 09:00:00', withCode: false);
+        insertAuthCode('code-late', $user, 'c', '2026-03-02 09:12:00'); // 12 min: outside the 11 min window
+        insertToken('t-early', $user, 'c', '2026-03-03 09:00:00', withCode: false);
+        insertAuthCode('code-early', $user, 'c', '2026-03-03 08:59:59'); // expired before the token
+        insertToken('t-wrong-user', $user, 'c', '2026-03-04 09:00:00', withCode: false);
+        insertAuthCode('code-other-user', $other, 'c', '2026-03-04 09:05:00');
+        insertToken('t-wrong-client', $user, 'c', '2026-03-05 09:00:00', withCode: false);
+        insertAuthCode('code-other-client', $user, 'c2', '2026-03-05 09:05:00');
+        insertToken('t-edge', $user, 'c', '2026-03-06 09:00:00', withCode: false);
+        insertAuthCode('code-edge', $user, 'c', '2026-03-06 09:11:00');
+
+        $this->artisan('audit-trail:export-sso', ['--output' => $this->output])
+            ->expectsOutputToContain('5')
+            ->assertExitCode(0);
+
+        $data = json_decode(File::get($this->output), true);
+        expect(array_column($data, 'auth_code_id', 'token_id'))->toBe(['t-ok' => 'code-t-ok', 't-edge' => 'code-edge']);
+    });
+
+    it('uses one authorization code for one token only', function (): void {
+        createPassportTables();
+        $user = insertUser();
+        insertClient('c', ['redirect_uris' => json_encode(['https://crm.cegem360.eu/cb']), 'grant_types' => '[]']);
+        insertToken('t1', $user, 'c', '2026-03-01 09:10:00');
+        insertToken('t2', $user, 'c', '2026-03-01 09:11:00', withCode: false); // e.g. refreshed right away
+
+        $this->artisan('audit-trail:export-sso', ['--output' => $this->output])->assertExitCode(0);
+
+        expect(array_column(json_decode(File::get($this->output), true), 'token_id'))->toBe(['t1']);
+    });
+
+    it('honours the configured authorization code window', function (): void {
+        config(['audit-trail.reconstruct.sso_auth_code_window_minutes' => 5]);
+        createPassportTables();
+        $user = insertUser();
+        insertClient('c', ['redirect_uris' => json_encode(['https://crm.cegem360.eu/cb']), 'grant_types' => '[]']);
+        insertToken('t1', $user, 'c', '2026-03-01 09:10:00'); // code expires +9 min
+
+        $this->artisan('audit-trail:export-sso', ['--output' => $this->output])->assertExitCode(0);
+
+        expect(json_decode(File::get($this->output), true))->toBe([]);
+    });
+
+    it('fails without an oauth_auth_codes table', function (): void {
+        createPassportTables();
+        Schema::drop('oauth_auth_codes');
+
+        $this->artisan('audit-trail:export-sso', ['--output' => $this->output])
+            ->expectsOutputToContain('oauth_auth_codes')
+            ->assertExitCode(1);
+
+        expect(File::exists($this->output))->toBeFalse();
     });
 
     it('fails without an oauth_access_tokens table', function (): void {
@@ -192,7 +277,7 @@ describe('sso_login rule', function (): void {
             ->and($row->inferred)->toBeFalse()
             ->and($row->occurred_at->format('Y-m-d H:i:s'))->toBe('2026-03-01 09:10:00')
             ->and($row->evidence_key)->toBe('sso:t1')
-            ->and($row->evidence)->toMatchArray(['rule' => 'sso_login', 'table' => 'oauth_access_tokens', 'id' => 't1']);
+            ->and($row->evidence)->toMatchArray(['rule' => 'sso_login', 'table' => 'oauth_access_tokens', 'id' => 't1', 'auth_code_id' => 'code-t1']);
     });
 
     it('ignores tokens of other apps', function (): void {
@@ -261,8 +346,9 @@ describe('sso_login rule', function (): void {
         'missing' => ['missing'],
         'not json' => ['{nope'],
         'not a list' => ['{"token_id": "t1"}'],
-        'entry without created_at' => [json_encode([['token_id' => 't1', 'app_host' => 'crm.cegem360.eu']])],
-        'unparsable created_at' => [json_encode([['token_id' => 't1', 'app_host' => 'crm.cegem360.eu', 'created_at' => 'yesterday-ish']])],
+        'entry without created_at' => [json_encode([['token_id' => 't1', 'app_host' => 'crm.cegem360.eu', 'auth_code_id' => 'c1']])],
+        'entry without auth_code_id' => [json_encode([['token_id' => 't1', 'app_host' => 'crm.cegem360.eu', 'created_at' => '2026-03-01T09:10:00+00:00']])],
+        'unparsable created_at' => [json_encode([['token_id' => 't1', 'app_host' => 'crm.cegem360.eu', 'created_at' => 'yesterday-ish', 'auth_code_id' => 'c1']])],
     ])->throws(InvalidArgumentException::class);
 
     it('is run by the reconstruct command with --sso-file', function (): void {

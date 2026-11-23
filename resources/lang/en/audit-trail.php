@@ -67,6 +67,7 @@ return [
         'evidence_key' => 'Evidence key',
     ],
     'export_sso' => [
+        'without_code' => ':count token(s) left out: no authorization code of the same user and client expiring within :minutes minutes (refreshed tokens are no sign-in).',
         'missing_table' => 'The :table table does not exist: run this on the publisher (Laravel Passport).',
         'exists' => 'The file :path already exists; use --force to overwrite it.',
         'write_failed' => 'Could not write :path: :error',

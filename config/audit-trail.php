@@ -54,5 +54,8 @@ return [
         'sole_member_tables' => [],
         'team_user_table' => 'team_user',
         'teams_table' => 'teams',
+        // export-sso: a token counts as a sign-in only if an authorization code of the same
+        // user and client expires within this many minutes after it (Passport code TTL 10 + 1).
+        'sso_auth_code_window_minutes' => 11,
     ],
 ];

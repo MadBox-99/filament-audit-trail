@@ -67,6 +67,7 @@ return [
         'evidence_key' => 'Bizonyíték kulcs',
     ],
     'export_sso' => [
+        'without_code' => ':count token kihagyva: nincs hozzá ugyanattól a usertől és klienstől :minutes percen belül lejáró authorization code (a frissített token nem belépés).',
         'missing_table' => 'A(z) :table tábla nem létezik: a publisheren futtasd (Laravel Passport).',
         'exists' => 'A(z) :path fájl már létezik; felülíráshoz add meg a --force kapcsolót.',
         'write_failed' => 'Nem sikerült írni: :path: :error',

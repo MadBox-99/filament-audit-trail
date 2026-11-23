@@ -14,7 +14,7 @@ use Madbox99\FilamentAuditTrail\Reconstruction\ReconstructionContext;
 
 /**
  * Per user and day (app timezone) with at least one action trace and no
- * login: a login_inferred at the day's earliest trace, with that trace as
+ * login (real, or inferred by another rule such as registration): a login_inferred at the day's earliest trace, with that trace as
  * evidence. Traces are the records the other rules accepted in this run and
  * the reconstructed action rows already stored, so the rule also works on
  * its own. It reads the other rules' results, so it must run last.
@@ -56,7 +56,7 @@ final class DerivedLoginRule implements Rule
                 continue;
             }
 
-            if ($record->type === AuditEventType::Login) {
+            if ($this->isOtherLogin($record->type, $record->evidenceKey)) {
                 $loginDays[$record->userId][$this->day($record->occurredAt)] = true;
             } elseif (in_array($record->type, self::TRACE_TYPES, true)) {
                 $trace($record->userId, $record->occurredAt, $record->evidenceKey, $record->evidence);
@@ -97,7 +97,7 @@ final class DerivedLoginRule implements Rule
     }
 
     /**
-     * Stored logins (live or reconstructed) mark their day; stored reconstructed
+     * Stored logins (see isOtherLogin) mark their day; stored reconstructed
      * action rows are traces. Live action rows are not: a live day has its own login.
      *
      * @param  callable(int, CarbonImmutable, string, array<string, mixed>): void  $trace
@@ -108,10 +108,18 @@ final class DerivedLoginRule implements Rule
         $model = new AuditEvent;
         $query = fn () => DB::connection($model->getConnectionName())->table($model->getTable())->whereNotNull('user_id');
 
-        foreach ($query()->select(['user_id', 'occurred_at'])->where('event', AuditEventType::Login->value)->orderBy('id')->cursor() as $row) {
-            $at = $ctx->parseTimestamp($row->occurred_at ?? null);
+        $logins = $query()
+            ->select(['user_id', 'occurred_at', 'event', 'evidence_key'])
+            ->whereIn('event', [AuditEventType::Login->value, AuditEventType::LoginInferred->value])
+            ->orderBy('id')
+            ->cursor();
 
-            if ($at !== null && is_numeric($row->user_id)) {
+        foreach ($logins as $row) {
+            $at = $ctx->parseTimestamp($row->occurred_at ?? null);
+            $type = AuditEventType::tryFrom((string) $row->event);
+
+            if ($at !== null && is_numeric($row->user_id) && $type !== null
+                && $this->isOtherLogin($type, is_string($row->evidence_key) ? $row->evidence_key : null)) {
                 $loginDays[(int) $row->user_id][$this->day($at)] = true;
             }
         }
@@ -137,6 +145,17 @@ final class DerivedLoginRule implements Rule
 
             $trace((int) $row->user_id, $at, $row->evidence_key, is_array($evidence) ? $evidence : []);
         }
+    }
+
+    /**
+     * A login that already covers its day: a real (live or SSO) login, or an
+     * inferred one of another rule (registration, email verification). This
+     * rule's own earlier rows do not count, so a rerun finds them as existing.
+     */
+    private function isOtherLogin(AuditEventType $type, ?string $evidenceKey): bool
+    {
+        return $type === AuditEventType::Login
+            || ($type === AuditEventType::LoginInferred && ! str_starts_with((string) $evidenceKey, $this->name().':'));
     }
 
     private function day(CarbonImmutable $at): string

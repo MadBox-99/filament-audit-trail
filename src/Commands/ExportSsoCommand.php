@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Madbox99\FilamentAuditTrail\Commands;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\File;
 use Madbox99\FilamentAuditTrail\Reconstruction\ReconstructionContext;
@@ -12,8 +13,9 @@ use Throwable;
 
 /**
  * Publisher side of the sso_login rule: every OAuth access token issued to a
- * user, with the host of its client's (first) redirect URI, as a JSON list
- * for `audit-trail:reconstruct --sso-file` in the receiver apps.
+ * user for an authorization code (a real sign-in; refreshed and personal
+ * access tokens are left out), with the host of its client's (first)
+ * redirect URI, as a JSON list for `audit-trail:reconstruct --sso-file`.
  */
 final class ExportSsoCommand extends Command
 {
@@ -32,7 +34,7 @@ final class ExportSsoCommand extends Command
         $connection = $context->connection();
         $schema = $connection->getSchemaBuilder();
 
-        foreach (['oauth_access_tokens', 'oauth_clients'] as $table) {
+        foreach (['oauth_access_tokens', 'oauth_clients', 'oauth_auth_codes'] as $table) {
             if (! $schema->hasTable($table)) {
                 $this->components->error(__('audit-trail::audit-trail.export_sso.missing_table', ['table' => $table]));
 
@@ -53,6 +55,8 @@ final class ExportSsoCommand extends Command
 
         $select = [
             't.id as token_id',
+            't.user_id as token_user_id',
+            't.client_id as token_client_id',
             't.created_at as created_at',
             'u.email as user_email',
             'c.'.$redirectColumn.' as redirect',
@@ -79,7 +83,10 @@ final class ExportSsoCommand extends Command
 
         $entries = [];
         $skipped = 0;
+        $withoutCode = 0;
         $timezone = ReconstructionContext::timezone();
+        $codes = $this->authCodes($context);
+        $window = max(0, (int) config('audit-trail.reconstruct.sso_auth_code_window_minutes', 11));
 
         foreach ($rows as $row) {
             $row = (array) $row;
@@ -98,12 +105,23 @@ final class ExportSsoCommand extends Command
                 continue;
             }
 
+            // Only a token issued for an authorization code proves a sign-in; a
+            // refreshed token has no code of its own.
+            $code = $this->claimCode($codes, (string) $row['token_user_id'].'|'.(string) $row['token_client_id'], $createdAt, $window);
+
+            if ($code === null) {
+                $withoutCode++;
+
+                continue;
+            }
+
             $entries[] = [
                 'token_id' => (string) $row['token_id'],
                 'user_uuid' => isset($row['user_uuid']) && is_string($row['user_uuid']) && $row['user_uuid'] !== '' ? $row['user_uuid'] : null,
                 'user_email' => is_string($row['user_email']) ? $row['user_email'] : null,
                 'app_host' => $host,
                 'created_at' => $createdAt->setTimezone($timezone)->toIso8601String(),
+                'auth_code_id' => $code,
             ];
         }
 
@@ -119,6 +137,10 @@ final class ExportSsoCommand extends Command
             return self::FAILURE;
         }
 
+        if ($withoutCode > 0) {
+            $this->components->warn(__('audit-trail::audit-trail.export_sso.without_code', ['count' => $withoutCode, 'minutes' => $window]));
+        }
+
         if ($skipped > 0) {
             $this->components->warn(__('audit-trail::audit-trail.export_sso.skipped', ['count' => $skipped]));
         }
@@ -126,6 +148,62 @@ final class ExportSsoCommand extends Command
         $this->components->info(__('audit-trail::audit-trail.export_sso.done', ['count' => count($entries), 'path' => $output]));
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Authorization codes by "user|client", earliest expiry first: [id, expires at].
+     *
+     * @return array<string, array<int, array{string, CarbonImmutable}>>
+     */
+    private function authCodes(ReconstructionContext $context): array
+    {
+        $codes = [];
+
+        $rows = $context->connection()->table('oauth_auth_codes')
+            ->select(['id', 'user_id', 'client_id', 'expires_at'])
+            ->whereNotNull('user_id')
+            ->whereNotNull('expires_at')
+            ->orderBy('expires_at')
+            ->orderBy('id')
+            ->cursor();
+
+        foreach ($rows as $row) {
+            $row = (array) $row;
+            $expiresAt = $context->parseTimestamp($row['expires_at']);
+
+            if ($expiresAt !== null) {
+                $codes[(string) $row['user_id'].'|'.(string) $row['client_id']][] = [(string) $row['id'], $expiresAt];
+            }
+        }
+
+        return $codes;
+    }
+
+    /**
+     * Takes the earliest unused code of the user and client that expires within
+     * [token created_at, created_at + window]; a code is exchanged for one token only.
+     *
+     * @param  array<string, array<int, array{string, CarbonImmutable}>>  $codes
+     */
+    private function claimCode(array &$codes, string $key, CarbonImmutable $createdAt, int $window): ?string
+    {
+        $until = $createdAt->addMinutes($window);
+
+        foreach ($codes[$key] ?? [] as $index => [$id, $expiresAt]) {
+            if ($expiresAt->lt($createdAt)) {
+                continue;
+            }
+
+            if ($expiresAt->gt($until)) {
+                return null;
+            }
+
+            unset($codes[$key][$index]);
+
+            return $id;
+        }
+
+        return null;
     }
 
     /**

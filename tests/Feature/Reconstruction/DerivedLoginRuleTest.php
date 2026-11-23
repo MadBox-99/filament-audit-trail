@@ -99,6 +99,43 @@ it('derives nothing on a day that already has a live or earlier reconstructed lo
     expect(derivedLogins()->sole()->occurred_at->format('Y-m-d'))->toBe('2026-03-03');
 });
 
+it('derives nothing on a day that already has a registration or email verification login', function (): void {
+    config(['audit-trail.reconstruct.publisher' => true]);
+    $user = insertUser(['created_at' => '2026-03-01 08:00:00', 'email_verified_at' => '2026-03-02 08:00:00']);
+
+    reconstruct([
+        new AccountCreatedRule,
+        fakeRule('actor_columns', [
+            evidence($user, '2026-03-01 09:00:00', 'posts:1:actor'),
+            evidence($user, '2026-03-02 09:00:00', 'posts:2:actor'),
+            evidence($user, '2026-03-03 09:00:00', 'posts:3:actor'),
+        ]),
+        new DerivedLoginRule,
+    ]);
+
+    expect(AuditEvent::query()->where('evidence_key', 'like', 'derived_login:%')->pluck('evidence_key')->all())
+        ->toBe(['derived_login:'.$user.':2026-03-03']);
+});
+
+it('derives nothing on a day with a stored login_inferred of another rule, but rederives its own', function (): void {
+    $user = insertUser();
+    DB::table('audit_events')->insert([
+        'occurred_at' => '2026-03-01 20:00:00', 'event' => 'login_inferred', 'user_id' => $user, 'source' => 'reconstructed',
+        'inferred' => true, 'evidence' => json_encode(['rule' => 'registration']), 'evidence_key' => 'users:'.$user.':registration', 'created_at' => now(),
+    ]);
+    $rules = fn (): array => [fakeRule('actor_columns', [
+        evidence($user, '2026-03-01 09:00:00', 'posts:1:actor'),
+        evidence($user, '2026-03-02 09:00:00', 'posts:2:actor'),
+    ]), new DerivedLoginRule];
+
+    reconstruct($rules());
+    $second = reconstruct($rules());
+
+    expect(AuditEvent::query()->where('evidence_key', 'like', 'derived_login:%')->pluck('evidence_key')->all())
+        ->toBe(['derived_login:'.$user.':2026-03-02'])
+        ->and($second->rule('derived_login')['existing'])->toBe(1);
+});
+
 it('derives nothing from account_created or registration logins alone', function (): void {
     config(['audit-trail.reconstruct.publisher' => true]);
     insertUser(['email_verified_at' => '2026-01-02 08:00:00']);

@@ -20,7 +20,7 @@ use Throwable;
  */
 final class SsoLoginRule implements Rule
 {
-    /** @var list<array{token_id: string, user_uuid: string|null, user_email: string|null, app_host: string, created_at: CarbonImmutable}> */
+    /** @var list<array{token_id: string, user_uuid: string|null, user_email: string|null, app_host: string, created_at: CarbonImmutable, auth_code_id: string}> */
     private readonly array $entries;
 
     private readonly string $host;
@@ -92,6 +92,7 @@ final class SsoLoginRule implements Rule
                     'table' => 'oauth_access_tokens',
                     'id' => $entry['token_id'],
                     'app_host' => $entry['app_host'],
+                    'auth_code_id' => $entry['auth_code_id'],
                     'file' => basename($this->path),
                 ],
                 evidenceKey: 'sso:'.$entry['token_id'],
@@ -130,7 +131,7 @@ final class SsoLoginRule implements Rule
     }
 
     /**
-     * @return list<array{token_id: string, user_uuid: string|null, user_email: string|null, app_host: string, created_at: CarbonImmutable}>
+     * @return list<array{token_id: string, user_uuid: string|null, user_email: string|null, app_host: string, created_at: CarbonImmutable, auth_code_id: string}>
      */
     private function load(): array
     {
@@ -160,7 +161,7 @@ final class SsoLoginRule implements Rule
     }
 
     /**
-     * @return array{token_id: string, user_uuid: string|null, user_email: string|null, app_host: string, created_at: CarbonImmutable}
+     * @return array{token_id: string, user_uuid: string|null, user_email: string|null, app_host: string, created_at: CarbonImmutable, auth_code_id: string}
      */
     private function entry(mixed $item, int $index): array
     {
@@ -182,6 +183,12 @@ final class SsoLoginRule implements Rule
             throw $invalid('app_host is missing');
         }
 
+        $authCode = $item['auth_code_id'] ?? null;
+
+        if (! (is_string($authCode) || is_int($authCode)) || trim((string) $authCode) === '') {
+            throw $invalid('auth_code_id is missing (export it again with this package version)');
+        }
+
         if (! is_string($createdAt) || trim($createdAt) === '') {
             throw $invalid('created_at is missing');
         }
@@ -201,6 +208,7 @@ final class SsoLoginRule implements Rule
             'user_email' => is_string($email) && $email !== '' ? $email : null,
             'app_host' => mb_strtolower(trim($host)),
             'created_at' => $at,
+            'auth_code_id' => (string) $authCode,
         ];
     }
 }
