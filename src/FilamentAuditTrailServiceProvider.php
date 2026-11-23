@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Madbox99\FilamentAuditTrail;
 
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
+use Madbox99\FilamentAuditTrail\Listeners\AuthEventSubscriber;
 use Madbox99\FilamentAuditTrail\Support\AuditRecorder;
 
 final class FilamentAuditTrailServiceProvider extends ServiceProvider
@@ -20,6 +22,8 @@ final class FilamentAuditTrailServiceProvider extends ServiceProvider
     {
         $this->loadTranslationsFrom(__DIR__.'/../resources/lang', 'audit-trail');
         $this->loadMigrationsFrom(__DIR__.'/../database/migrations');
+
+        Event::subscribe(AuthEventSubscriber::class);
 
         if ($this->app->runningInConsole()) {
             $this->publishes([
