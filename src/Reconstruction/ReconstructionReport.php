@@ -7,7 +7,7 @@ namespace Madbox99\FilamentAuditTrail\Reconstruction;
 use Madbox99\FilamentAuditTrail\Enums\AuditEventType;
 
 /**
- * @phpstan-type RuleStats array{found: int, accepted: int, rejected: array<string, int>, inserted: int, existing: int, failed: int, error: string|null}
+ * @phpstan-type RuleStats array{found: int, accepted: int, rejected: array<string, int>, inserted: int, existing: int, failed: int, error: string|null, bootstrap_unchecked: int}
  * @phpstan-type UserStats array{login: int, login_inferred: int, account_created: int, other: int, days: array<string, true>}
  */
 final class ReconstructionReport
@@ -28,7 +28,7 @@ final class ReconstructionReport
 
     public function startRule(string $rule): void
     {
-        $this->rules[$rule] ??= ['found' => 0, 'accepted' => 0, 'rejected' => [], 'inserted' => 0, 'existing' => 0, 'failed' => 0, 'error' => null];
+        $this->rules[$rule] ??= ['found' => 0, 'accepted' => 0, 'rejected' => [], 'inserted' => 0, 'existing' => 0, 'failed' => 0, 'error' => null, 'bootstrap_unchecked' => 0];
     }
 
     public function found(string $rule): void
@@ -72,6 +72,25 @@ final class ReconstructionReport
         $this->userStats[$userId] = $stats;
     }
 
+    /**
+     * An accepted record whose team-bootstrap check could not be applied
+     * (team row missing, or its creation time unknown or a placeholder).
+     */
+    public function bootstrapUnchecked(string $rule): void
+    {
+        $this->rules[$rule]['bootstrap_unchecked']++;
+    }
+
+    /**
+     * Rules with accepted records that skipped the team-bootstrap check: rule => count.
+     *
+     * @return array<string, int>
+     */
+    public function bootstrapUncheckedCounts(): array
+    {
+        return array_filter(array_map(fn (array $stats): int => $stats['bootstrap_unchecked'], $this->rules));
+    }
+
     public function inserted(string $rule): void
     {
         $this->rules[$rule]['inserted']++;
@@ -105,7 +124,7 @@ final class ReconstructionReport
      */
     public function rule(string $rule): array
     {
-        return $this->rules[$rule] ?? ['found' => 0, 'accepted' => 0, 'rejected' => [], 'inserted' => 0, 'existing' => 0, 'failed' => 0, 'error' => null];
+        return $this->rules[$rule] ?? ['found' => 0, 'accepted' => 0, 'rejected' => [], 'inserted' => 0, 'existing' => 0, 'failed' => 0, 'error' => null, 'bootstrap_unchecked' => 0];
     }
 
     /**

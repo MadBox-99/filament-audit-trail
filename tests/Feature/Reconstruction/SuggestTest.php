@@ -45,3 +45,19 @@ it('prints the candidates with row counts and a config snippet, writing nothing'
 
     expect(AuditEvent::query()->count())->toBe(0);
 });
+
+it('never suggests the spatie permission tables', function (): void {
+    foreach (['roles', 'permissions', 'model_has_roles', 'model_has_permissions', 'role_has_permissions'] as $name) {
+        Schema::create($name, function (Blueprint $table): void {
+            $table->id();
+            $table->foreignId('user_id')->nullable();
+            $table->foreignId('team_id')->nullable();
+            $table->timestamps();
+        });
+    }
+
+    $inspector = app(SchemaInspector::class);
+
+    expect($inspector->actorColumnCandidates())->toBe(['posts' => 'user_id'])
+        ->and($inspector->teamTableCandidates())->toBe(['posts']);
+});

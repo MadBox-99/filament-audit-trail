@@ -14,11 +14,33 @@ use Madbox99\FilamentAuditTrail\Reconstruction\ReconstructionContext;
  * grace period after their team was created are system bootstrap data and are
  * rejected as `team_bootstrap`.
  */
-final class ActorColumnsRule implements Rule
+final class ActorColumnsRule implements ChecksConfiguration, Rule
 {
     public function name(): string
     {
         return 'actor_columns';
+    }
+
+    public function configProblems(ReconstructionContext $ctx): array
+    {
+        $schema = $ctx->connection()->getSchemaBuilder();
+        $problems = [];
+
+        foreach ((array) config('audit-trail.reconstruct.actor_columns', []) as $table => $column) {
+            $table = (string) $table;
+
+            if (! $schema->hasTable($table)) {
+                $problems[] = ['table' => $table, 'column' => null];
+
+                continue;
+            }
+
+            foreach (array_diff(['id', 'created_at', (string) $column], $schema->getColumnListing($table)) as $missing) {
+                $problems[] = ['table' => $table, 'column' => $missing];
+            }
+        }
+
+        return $problems;
     }
 
     public function collect(ReconstructionContext $ctx): iterable

@@ -76,7 +76,7 @@ function evidence(int $userId, string $at, string $key, array $overrides = []): 
 {
     return new EvidenceRecord(...[
         'type' => AuditEventType::Created,
-        'occurredAt' => CarbonImmutable::parse($at),
+        'occurredAt' => CarbonImmutable::parse($at, (string) config('app.timezone')),
         'userId' => $userId,
         'userEmail' => null,
         'teamId' => null,

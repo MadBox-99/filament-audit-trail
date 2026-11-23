@@ -66,6 +66,13 @@ return [
         'inferred' => 'Levezetett',
         'evidence_key' => 'Bizonyíték kulcs',
     ],
+    'export_sso' => [
+        'missing_table' => 'A(z) :table tábla nem létezik: a publisheren futtasd (Laravel Passport).',
+        'exists' => 'A(z) :path fájl már létezik; felülíráshoz add meg a --force kapcsolót.',
+        'write_failed' => 'Nem sikerült írni: :path: :error',
+        'skipped' => ':count token kihagyva: nincs redirect host vagy létrehozási idő.',
+        'done' => ':count token exportálva ide: :path.',
+    ],
     'reconstruct' => [
         'suggest' => [
             'intro' => "Csak javaslat: nézd át a táblákat, és a megbízhatókat másold a config/audit-trail.php 'reconstruct' részébe.",
@@ -76,7 +83,11 @@ return [
             'rows' => 'Sorok',
             'snippet' => 'Config-részlet a config/audit-trail.php-hez (reconstruct):',
         ],
-        'not_supported' => 'A(z) :option még nem támogatott, figyelmen kívül marad.',
+        'sso_file_required' => 'Az sso_login szabályhoz kell a --sso-file (a publisher audit-trail:export-sso kimenete).',
+        'sso_file_info' => 'SSO-fájl: :total token, ebből :matching ehhez az apphoz (:host).',
+        'bootstrap_unchecked' => 'Csapat-létrehozás ellenőrzése nélkül elfogadva (a csapat létrehozási ideje ismeretlen) — :rule: :count',
+        'missing_table' => ':rule: :table — a tábla nem létezik (konfigurálva; kihagyva).',
+        'missing_column' => ':rule: :table.:column — az oszlop nem létezik (konfigurálva; kihagyva).',
         'dry_run' => 'Próbafutás: semmi nem íródott ki.',
         'invalid_time' => 'Érvénytelen --since vagy --until érték.',
         'unknown_rule' => 'Ismeretlen szabály(ok): :rules. Ismert szabályok: :known.',

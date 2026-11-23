@@ -102,10 +102,23 @@ final class ReconstructionContext
         }
 
         try {
-            return CarbonImmutable::parse($value);
+            // Database timestamps are wall-clock times in the app timezone.
+            return $value instanceof CarbonInterface
+                ? CarbonImmutable::instance($value)
+                : CarbonImmutable::parse($value, self::timezone());
         } catch (Throwable) {
             return null;
         }
+    }
+
+    /**
+     * The app timezone: stored times are in it, and days are cut in it.
+     */
+    public static function timezone(): string
+    {
+        $timezone = config('app.timezone');
+
+        return is_string($timezone) && $timezone !== '' ? $timezone : 'UTC';
     }
 
     /**

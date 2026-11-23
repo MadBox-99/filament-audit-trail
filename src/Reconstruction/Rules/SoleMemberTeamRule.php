@@ -16,13 +16,43 @@ use Madbox99\FilamentAuditTrail\Reconstruction\ReconstructionContext;
  * is team bootstrap data (`team_bootstrap`). Former members are not visible,
  * which the evidence note records.
  */
-final class SoleMemberTeamRule implements Rule
+final class SoleMemberTeamRule implements ChecksConfiguration, Rule
 {
     public const string NOTE = 'sole member at reconstruction time; former members not visible';
 
     public function name(): string
     {
         return 'sole_member_team';
+    }
+
+    public function configProblems(ReconstructionContext $ctx): array
+    {
+        $tables = (array) config('audit-trail.reconstruct.sole_member_tables', []);
+
+        if ($tables === []) {
+            return [];
+        }
+
+        $schema = $ctx->connection()->getSchemaBuilder();
+        $problems = [];
+        /** @var string $pivot */
+        $pivot = config('audit-trail.reconstruct.team_user_table', 'team_user');
+
+        foreach ([$pivot => ['team_id', 'user_id'], ...array_fill_keys(array_map(strval(...), $tables), ['id', 'team_id', 'created_at'])] as $table => $required) {
+            $table = (string) $table;
+
+            if (! $schema->hasTable($table)) {
+                $problems[] = ['table' => $table, 'column' => null];
+
+                continue;
+            }
+
+            foreach (array_diff($required, $schema->getColumnListing($table)) as $missing) {
+                $problems[] = ['table' => $table, 'column' => $missing];
+            }
+        }
+
+        return $problems;
     }
 
     public function collect(ReconstructionContext $ctx): iterable

@@ -21,6 +21,8 @@ final class SchemaInspector
         'jobs', 'job_batches', 'failed_jobs', 'activity_log', 'imports', 'exports', 'failed_import_rows',
         'notifications', 'password_reset_tokens', 'password_resets', '*token*', 'oauth_*',
         'telescope_*', 'pulse_*', 'audit_events',
+        // spatie/laravel-permission
+        'roles', 'permissions', 'model_has_*', 'role_has_*',
     ];
 
     private readonly ReconstructionContext $context;

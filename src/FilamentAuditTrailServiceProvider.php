@@ -6,6 +6,7 @@ namespace Madbox99\FilamentAuditTrail;
 
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
+use Madbox99\FilamentAuditTrail\Commands\ExportSsoCommand;
 use Madbox99\FilamentAuditTrail\Commands\ReconstructCommand;
 use Madbox99\FilamentAuditTrail\Listeners\AuthEventSubscriber;
 use Madbox99\FilamentAuditTrail\Listeners\ModelChangeListener;
@@ -38,7 +39,7 @@ final class FilamentAuditTrailServiceProvider extends ServiceProvider
         $this->app->make(ActionCallHook::class)->register();
 
         if ($this->app->runningInConsole()) {
-            $this->commands([ReconstructCommand::class]);
+            $this->commands([ReconstructCommand::class, ExportSsoCommand::class]);
 
             $this->publishes([
                 __DIR__.'/../config/audit-trail.php' => config_path('audit-trail.php'),

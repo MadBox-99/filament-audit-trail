@@ -77,6 +77,10 @@ final class Reconstructor
                 }
 
                 $report->accepted($name);
+
+                if (str_contains((string) ($record->evidence['note'] ?? ''), ReconstructionContext::UNKNOWN_TEAM_CREATION_NOTE)) {
+                    $report->bootstrapUnchecked($name);
+                }
                 $accepted[] = [$record, $this->context->concernedUserId($record)];
                 $buffer[] = $record;
 

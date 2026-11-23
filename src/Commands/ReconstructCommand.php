@@ -6,14 +6,18 @@ namespace Madbox99\FilamentAuditTrail\Commands;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
+use InvalidArgumentException;
 use Madbox99\FilamentAuditTrail\Reconstruction\ReconstructionContext;
 use Madbox99\FilamentAuditTrail\Reconstruction\Reconstructor;
 use Madbox99\FilamentAuditTrail\Reconstruction\Rules\AccountCreatedRule;
 use Madbox99\FilamentAuditTrail\Reconstruction\Rules\ActivityLogRule;
 use Madbox99\FilamentAuditTrail\Reconstruction\Rules\ActorColumnsRule;
+use Madbox99\FilamentAuditTrail\Reconstruction\Rules\ChecksConfiguration;
+use Madbox99\FilamentAuditTrail\Reconstruction\Rules\DerivedLoginRule;
 use Madbox99\FilamentAuditTrail\Reconstruction\Rules\ImportExportRule;
 use Madbox99\FilamentAuditTrail\Reconstruction\Rules\Rule;
 use Madbox99\FilamentAuditTrail\Reconstruction\Rules\SoleMemberTeamRule;
+use Madbox99\FilamentAuditTrail\Reconstruction\Rules\SsoLoginRule;
 use Madbox99\FilamentAuditTrail\Reconstruction\SchemaInspector;
 use Throwable;
 
@@ -44,14 +48,26 @@ final class ReconstructCommand extends Command
             return $this->suggest();
         }
 
-        if ($this->option('sso-file') !== null) {
-            $this->components->warn(__('audit-trail::audit-trail.reconstruct.not_supported', ['option' => '--sso-file']));
-        }
-
-        $rules = $this->rules();
-
         /** @var list<string> $only */
         $only = (array) $this->option('rule');
+        $ssoFile = $this->option('sso-file');
+        $ssoRule = null;
+
+        if (is_string($ssoFile) && $ssoFile !== '') {
+            try {
+                $ssoRule = new SsoLoginRule($ssoFile);
+            } catch (InvalidArgumentException $e) {
+                $this->components->error($e->getMessage());
+
+                return self::FAILURE;
+            }
+        } elseif (in_array('sso_login', $only, true)) {
+            $this->components->error(__('audit-trail::audit-trail.reconstruct.sso_file_required'));
+
+            return self::FAILURE;
+        }
+
+        $rules = $this->rules($ssoRule);
 
         if ($only !== []) {
             $names = array_map(fn (Rule $rule): string => $rule->name(), $rules);
@@ -70,6 +86,28 @@ final class ReconstructCommand extends Command
         }
 
         $context = new ReconstructionContext($since, $until);
+
+        if ($ssoRule instanceof SsoLoginRule && in_array($ssoRule, $rules, true)) {
+            $this->components->info(__('audit-trail::audit-trail.reconstruct.sso_file_info', [
+                'total' => $ssoRule->entryCount(),
+                'matching' => $ssoRule->hostEntryCount(),
+                'host' => $ssoRule->host(),
+            ]));
+        }
+
+        foreach ($rules as $rule) {
+            if (! $rule instanceof ChecksConfiguration) {
+                continue;
+            }
+
+            foreach ($rule->configProblems($context) as $problem) {
+                $this->components->warn(__(
+                    'audit-trail::audit-trail.reconstruct.'.($problem['column'] === null ? 'missing_table' : 'missing_column'),
+                    ['rule' => $rule->name(), 'table' => $problem['table'], 'column' => (string) $problem['column']],
+                ));
+            }
+        }
+
         $report = app(Reconstructor::class, ['context' => $context])->run($rules, (bool) $this->option('dry-run'));
 
         if ($report->dryRun) {
@@ -82,6 +120,10 @@ final class ReconstructCommand extends Command
             ]),
             $report->toTable(),
         );
+
+        foreach ($report->bootstrapUncheckedCounts() as $rule => $count) {
+            $this->components->warn(__('audit-trail::audit-trail.reconstruct.bootstrap_unchecked', ['rule' => $rule, 'count' => $count]));
+        }
 
         $summary = $report->userSummary();
         $this->table(
@@ -108,19 +150,21 @@ final class ReconstructCommand extends Command
     /**
      * The rules in run order. Rules that read earlier results
      * (ReconstructionContext::accepted()) must come after those they read;
-     * the derived-login rule always goes last.
+     * the derived-login rule always goes last. The SSO rule runs only with --sso-file.
      *
      * @return list<Rule>
      */
-    private function rules(): array
+    private function rules(?SsoLoginRule $sso): array
     {
-        return [
+        return array_values(array_filter([
             new ActivityLogRule,
             new ImportExportRule,
             new AccountCreatedRule,
             new ActorColumnsRule,
             new SoleMemberTeamRule,
-        ];
+            $sso,
+            new DerivedLoginRule,
+        ]));
     }
 
     /**

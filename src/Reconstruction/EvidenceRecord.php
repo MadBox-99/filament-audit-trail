@@ -47,7 +47,7 @@ final readonly class EvidenceRecord
     {
         return [
             'event' => $this->type,
-            'occurred_at' => $this->occurredAt->format('Y-m-d H:i:s.v'),
+            'occurred_at' => $this->occurredAt->setTimezone(ReconstructionContext::timezone())->format('Y-m-d H:i:s.v'),
             'user_id' => $this->userId,
             'user_email' => $this->userEmail,
             'team_id' => $this->teamId,

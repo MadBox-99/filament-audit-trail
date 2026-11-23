@@ -66,6 +66,13 @@ return [
         'inferred' => 'Inferred',
         'evidence_key' => 'Evidence key',
     ],
+    'export_sso' => [
+        'missing_table' => 'The :table table does not exist: run this on the publisher (Laravel Passport).',
+        'exists' => 'The file :path already exists; use --force to overwrite it.',
+        'write_failed' => 'Could not write :path: :error',
+        'skipped' => ':count token(s) skipped: no redirect host or no creation time.',
+        'done' => ':count token(s) exported to :path.',
+    ],
     'reconstruct' => [
         'suggest' => [
             'intro' => "Suggestion only: review the tables, then copy the ones you trust into config/audit-trail.php under 'reconstruct'.",
@@ -76,7 +83,11 @@ return [
             'rows' => 'Rows',
             'snippet' => 'Config snippet for config/audit-trail.php (reconstruct):',
         ],
-        'not_supported' => ':option is not supported yet; it is ignored.',
+        'sso_file_required' => 'The sso_login rule needs --sso-file (the publisher\'s audit-trail:export-sso output).',
+        'sso_file_info' => 'SSO file: :total token(s), :matching for this app (:host).',
+        'bootstrap_unchecked' => 'Accepted without the team bootstrap check (team creation time unknown) — :rule: :count',
+        'missing_table' => ':rule: :table — table does not exist (configured; skipped).',
+        'missing_column' => ':rule: :table.:column — column does not exist (configured; skipped).',
         'dry_run' => 'Dry run: nothing was written.',
         'invalid_time' => 'Invalid --since or --until value.',
         'unknown_rule' => 'Unknown rule(s): :rules. Known rules: :known.',
