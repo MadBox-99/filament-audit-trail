@@ -11,6 +11,7 @@ use Madbox99\FilamentAuditTrail\Enums\AuditEventType;
 use Madbox99\FilamentAuditTrail\Models\AuditEvent;
 use Madbox99\FilamentAuditTrail\Support\AuditRecorder;
 use Madbox99\FilamentAuditTrail\Support\PropertySanitizer;
+use Throwable;
 
 final readonly class ModelChangeListener
 {
@@ -21,6 +22,22 @@ final readonly class ModelChangeListener
      */
     public function handle(string $event, array $payload): void
     {
+        try {
+            $this->process($event, $payload);
+        } catch (Throwable $e) {
+            report($e);
+        }
+    }
+
+    /**
+     * @param  array<int, mixed>  $payload
+     */
+    private function process(string $event, array $payload): void
+    {
+        if (! config('audit-trail.enabled')) {
+            return;
+        }
+
         $model = $payload[0] ?? null;
 
         if (! $model instanceof Model || ! $this->shouldRecord($model)) {
@@ -68,9 +85,20 @@ final readonly class ModelChangeListener
     private function updated(Model $model): void
     {
         $changes = $model->getChanges();
-        unset($changes[$model->getUpdatedAtColumn()]);
+        if ($model->usesTimestamps() && $model->getUpdatedAtColumn() !== null) {
+            unset($changes[$model->getUpdatedAtColumn()]);
+        }
 
         if ($changes === []) {
+            return;
+        }
+
+        // SoftDeletes::restore() saves (firing "updated") before it fires "restored".
+        if (
+            method_exists($model, 'getDeletedAtColumn')
+            && array_keys($changes) === [$model->getDeletedAtColumn()]
+            && $changes[$model->getDeletedAtColumn()] === null
+        ) {
             return;
         }
 

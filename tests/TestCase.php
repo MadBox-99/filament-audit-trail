@@ -85,6 +85,7 @@ abstract class TestCase extends Orchestra
             $table->foreignId('user_id')->nullable();
             $table->string('title');
             $table->string('secret_token')->nullable();
+            $table->softDeletes();
             $table->timestamps();
         });
 

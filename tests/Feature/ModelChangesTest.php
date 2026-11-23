@@ -6,7 +6,9 @@ use Filament\Actions\Exports\Models\Export;
 use Filament\Actions\Imports\Models\Import;
 use Madbox99\FilamentAuditTrail\Enums\AuditEventType;
 use Madbox99\FilamentAuditTrail\Models\AuditEvent;
+use Madbox99\FilamentAuditTrail\Tests\Fixtures\HiddenPost;
 use Madbox99\FilamentAuditTrail\Tests\Fixtures\Post;
+use Madbox99\FilamentAuditTrail\Tests\Fixtures\SoftPost;
 use Madbox99\FilamentAuditTrail\Tests\Fixtures\User;
 
 beforeEach(function (): void {
@@ -107,4 +109,39 @@ it('records an import instead of a created row', function (): void {
         ->and($row->properties['file_name'])->toBe('a.csv')
         ->and($row->properties['total_rows'])->toBe(3)
         ->and($row->properties['importer'])->toBe('App\\Importers\\X');
+});
+
+it('never throws into a model save when the guard lookup fails', function (): void {
+    config(['audit-trail.guard' => 'nonexistent']);
+
+    $post = makePost();
+
+    expect($post->exists)->toBeTrue()
+        ->and(AuditEvent::query()->count())->toBe(0);
+});
+
+it('redacts the hidden attributes of the model in old and new', function (): void {
+    $post = HiddenPost::create(['team_id' => 1, 'title' => 'topsecret-a']);
+    $created = AuditEvent::query()->sole();
+    expect($created->properties['new'])->not->toHaveKey('title');
+    AuditEvent::query()->delete();
+
+    $post->update(['title' => 'topsecret-b', 'team_id' => 2]);
+
+    $row = AuditEvent::query()->sole();
+    expect($row->properties['old'])->not->toHaveKey('title')
+        ->and($row->properties['new'])->not->toHaveKey('title')
+        ->and($row->properties['new'])->toHaveKey('team_id')
+        ->and(json_encode($row->properties))->not->toContain('topsecret');
+});
+
+it('records a restore as exactly one restored row', function (): void {
+    $post = SoftPost::create(['team_id' => 1, 'title' => 'a']);
+    $post->delete();
+    AuditEvent::query()->delete();
+
+    $post->restore();
+
+    expect(AuditEvent::query()->where('event', 'restored')->count())->toBe(1)
+        ->and(AuditEvent::query()->where('event', 'updated')->count())->toBe(0);
 });
