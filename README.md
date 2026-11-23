@@ -129,6 +129,7 @@ date range, and an export action.
 | `reconstruct.ignored_timestamps` | `2025-10-10 09:00:00`, `2025-10-01 12:00:00` | Placeholder timestamps; evidence with exactly this time is rejected. |
 | `reconstruct.excluded_email_patterns` | `%@example.%` | SQL-LIKE style patterns of seed/test users that are excluded. |
 | `reconstruct.team_creation_grace_seconds` | `120` | Rows created this soon after their team are treated as automatic bootstrap data. |
+| `reconstruct.sso_provisioning_grace_seconds` | `120` | `sso_login` only: a token issued up to this many seconds before the local user's `created_at` is still accepted (the first SSO login creates the account). Read with this default when the key is missing from a published config. |
 | `reconstruct.publisher` | `false` | `true` on the SSO publisher app: a verified registration then counts as an inferred login. |
 | `reconstruct.actor_columns` | `[]` | Allowlist `table => user column` for the `actor_columns` rule. |
 | `reconstruct.sole_member_tables` | `[]` | Allowlist of tables with a `team_id` for the `sole_member_team` rule. |
@@ -181,7 +182,7 @@ Rules run in this order; `derived_login` always last because it reads the other 
 | `account_created` | `users.created_at` | `account_created` with **no actor** (in receiver apps a sync created the account). On the publisher, if the user has `email_verified_at` and `created_at` is not a placeholder, also `login_inferred` at `created_at` (`registration`) and at `email_verified_at` (`email_verification`); the second is skipped when `email_verified_at` equals `created_at` (verified in the moment of registration). |
 | `actor_columns` | Tables in `reconstruct.actor_columns` | `created` by the user the named column points to. |
 | `sole_member_team` | Tables in `reconstruct.sole_member_tables` | `created` by the only member of the row's team. Known limit: former members are invisible; the evidence note says so. |
-| `sso_login` | The `export-sso` file (`--sso-file`) | `login` at the exact token time, `inferred = false`. |
+| `sso_login` | The `export-sso` file (`--sso-file`) | `login` at the exact token time, `inferred = false`. The account check is relaxed by `reconstruct.sso_provisioning_grace_seconds` (default 120), because the first SSO login creates the local user a moment after the token. Other rules stay strict. |
 | `derived_login` | Action traces (accepted `created`, `updated`, `deleted`, `import`, `export`, `action_executed` of this run and already stored reconstructed rows) | One `login_inferred` per user and day (app timezone) that has a trace but no login of any kind, at the day's earliest trace, `inferred = true`. |
 
 ### Rejection reasons
@@ -193,7 +194,7 @@ Evidence that is found but not accepted is counted per reason in the report and 
 | `ignored_timestamp` | The time is one of `reconstruct.ignored_timestamps` (placeholder value). |
 | `excluded_user` | The user's email matches `excluded_email_patterns`. |
 | `out_of_range` | Outside `--since` / `--until`. |
-| `before_account` | The evidence is older than the user's real `created_at`. |
+| `before_account` | The evidence is older than the user's real `created_at` (`sso_login`: older than `created_at` minus `sso_provisioning_grace_seconds`). |
 | `unknown_user` | The record names a user that does not exist here (`activity_log`, `imports_exports`, `actor_columns`, and an SSO token of no known user). |
 | `team_bootstrap` | `actor_columns` / `sole_member_team`: the row was created within `team_creation_grace_seconds` of its team (automatic base data). If the team's creation time is unknown, the row is accepted with an evidence note and the report warns that the check was not applied. |
 | `member_joined_later` | `sole_member_team`: the member joined after the row was created, so they cannot be its author. |

@@ -138,11 +138,26 @@ final class Reconstructor
 
         $createdAt = $userId === null ? null : $this->context->userCreatedAt($userId);
 
-        if ($createdAt !== null && $record->occurredAt->lt($createdAt)) {
+        if ($createdAt !== null && $record->occurredAt->lt($createdAt->subSeconds($this->graceSeconds($record)))) {
             return 'before_account';
         }
 
         return null;
+    }
+
+    /**
+     * The first SSO login provisions the local account, so the publisher's token
+     * predates the user's `created_at` by about a second. Only `sso_login` gets this slack.
+     */
+    private function graceSeconds(EvidenceRecord $record): int
+    {
+        if (($record->evidence['rule'] ?? null) !== 'sso_login') {
+            return 0;
+        }
+
+        $seconds = config('audit-trail.reconstruct.sso_provisioning_grace_seconds', 120);
+
+        return is_numeric($seconds) ? max(0, (int) $seconds) : 120;
     }
 
     /**

@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Schema;
 use Madbox99\FilamentAuditTrail\Enums\AuditEventType;
 use Madbox99\FilamentAuditTrail\Models\AuditEvent;
+use Madbox99\FilamentAuditTrail\Reconstruction\Rules\ImportExportRule;
 use Madbox99\FilamentAuditTrail\Reconstruction\Rules\SsoLoginRule;
 
 /**
@@ -375,6 +376,55 @@ describe('sso_login rule', function (): void {
         ]))]);
 
         expect($report->rule('sso_login')['rejected'])->toBe(['excluded_user' => 1, 'before_account' => 1]);
+    });
+
+    describe('provisioning grace', function (): void {
+        it('accepts a token issued 1 second before the local account, which the first SSO login created', function (): void {
+            insertUser(['uuid' => 'u-1', 'created_at' => '2026-03-01 09:10:01']);
+
+            $report = reconstruct([new SsoLoginRule(ssoFile([ssoEntry('t1', 'u-1', null, 'crm.cegem360.eu', '2026-03-01T09:10:00+00:00')]))]);
+
+            expect($report->rule('sso_login')['inserted'])->toBe(1)
+                ->and(AuditEvent::query()->sole()->event)->toBe(AuditEventType::Login);
+        });
+
+        it('rejects a token issued 121 seconds before the local account', function (): void {
+            insertUser(['uuid' => 'u-1', 'created_at' => '2026-03-01 09:12:01']);
+
+            $report = reconstruct([new SsoLoginRule(ssoFile([ssoEntry('t1', 'u-1', null, 'crm.cegem360.eu', '2026-03-01T09:10:00+00:00')]))]);
+
+            expect($report->rule('sso_login')['rejected'])->toBe(['before_account' => 1])
+                ->and(AuditEvent::query()->count())->toBe(0);
+        });
+
+        it('keeps the strict check for records of other rules', function (): void {
+            $user = insertUser(['created_at' => '2026-03-01 10:00:01']);
+            DB::table('imports')->insert([
+                'file_name' => 'a.csv', 'file_path' => 'x/a.csv', 'importer' => 'App\\Imp', 'total_rows' => 3,
+                'user_id' => $user, 'created_at' => '2026-03-01 10:00:00', 'updated_at' => '2026-03-01 10:00:00',
+            ]);
+
+            $report = reconstruct([new ImportExportRule]);
+
+            expect($report->rule('imports_exports')['rejected'])->toBe(['before_account' => 1])
+                ->and(AuditEvent::query()->count())->toBe(0);
+        });
+
+        it('defaults the window to 120 seconds when the config key is absent', function (): void {
+            $reconstruct = config('audit-trail.reconstruct');
+            unset($reconstruct['sso_provisioning_grace_seconds']);
+            config(['audit-trail.reconstruct' => $reconstruct]);
+            insertUser(['uuid' => 'u-1', 'created_at' => '2026-03-01 09:12:00']);
+            insertUser(['uuid' => 'u-2', 'created_at' => '2026-03-01 09:12:01']);
+
+            $report = reconstruct([new SsoLoginRule(ssoFile([
+                ssoEntry('t1', 'u-1', null, 'crm.cegem360.eu', '2026-03-01T09:10:00+00:00'),
+                ssoEntry('t2', 'u-2', null, 'crm.cegem360.eu', '2026-03-01T09:10:00+00:00'),
+            ]))]);
+
+            expect($report->rule('sso_login')['inserted'])->toBe(1)
+                ->and($report->rule('sso_login')['rejected'])->toBe(['before_account' => 1]);
+        });
     });
 
     it('rejects a missing, unreadable or malformed file', function (string $contents): void {

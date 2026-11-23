@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.1.1 - 2026-11-23
+
+- Fix: the `sso_login` rule no longer rejects genuine first SSO logins as `before_account`. The first login
+  creates the local user about a second after the publisher's token, so tokens up to
+  `reconstruct.sso_provisioning_grace_seconds` (new, default 120; read with that default when missing from a
+  published config) before `users.created_at` are accepted. Other rules keep the strict check.
+
 ## v0.1.0 - 2026-11-23
 
 Initial release.

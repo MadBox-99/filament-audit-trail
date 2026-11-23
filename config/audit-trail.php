@@ -57,6 +57,9 @@ return [
         'ignored_timestamps' => ['2025-10-10 09:00:00', '2025-10-01 12:00:00'],
         'excluded_email_patterns' => ['%@example.%'],
         'team_creation_grace_seconds' => 120,
+        // sso_login only: the first SSO login creates the local user, so the publisher's token predates
+        // users.created_at by about a second. A token up to this many seconds earlier is still accepted.
+        'sso_provisioning_grace_seconds' => 120,
         'publisher' => false,
         'actor_columns' => [],
         'sole_member_tables' => [],
