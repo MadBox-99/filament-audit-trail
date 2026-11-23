@@ -64,6 +64,7 @@ abstract class TestCase extends Orchestra
             $table->string('password')->nullable();
             $table->boolean('is_admin')->default(false);
             $table->uuid('uuid')->nullable();
+            $table->timestamp('email_verified_at')->nullable();
             $table->rememberToken();
             $table->timestamps();
         });

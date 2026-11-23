@@ -66,4 +66,32 @@ return [
         'inferred' => 'Levezetett',
         'evidence_key' => 'Bizonyíték kulcs',
     ],
+    'reconstruct' => [
+        'dry_run' => 'Próbafutás: semmi nem íródott ki.',
+        'invalid_time' => 'Érvénytelen --since vagy --until érték.',
+        'unknown_rule' => 'Ismeretlen szabály(ok): :rules. Ismert szabályok: :known.',
+        'columns' => [
+            'rule' => 'Szabály',
+            'found' => 'Talált',
+            'accepted' => 'Elfogadott',
+            'rejected' => 'Elvetett',
+            'inserted' => 'Beírt',
+            'existing' => 'Már megvolt',
+            'failed' => 'Sikertelen',
+            'error' => 'Hiba',
+        ],
+        'summary' => [
+            'metric' => 'Felhasználók',
+            'count' => 'Darab',
+            'users' => 'Összes felhasználó (seed fiókok nélkül)',
+            'with_login' => 'SSO-belépéssel',
+            'with_inferred_login' => 'Levezetett belépéssel',
+            'only_account_created' => 'Csak fiók-létrehozás',
+        ],
+        'top' => [
+            'user_id' => 'Felhasználó ID',
+            'email' => 'E-mail',
+            'active_days' => 'Aktív napok',
+        ],
+    ],
 ];

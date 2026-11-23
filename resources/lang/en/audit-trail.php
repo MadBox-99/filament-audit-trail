@@ -66,4 +66,32 @@ return [
         'inferred' => 'Inferred',
         'evidence_key' => 'Evidence key',
     ],
+    'reconstruct' => [
+        'dry_run' => 'Dry run: nothing was written.',
+        'invalid_time' => 'Invalid --since or --until value.',
+        'unknown_rule' => 'Unknown rule(s): :rules. Known rules: :known.',
+        'columns' => [
+            'rule' => 'Rule',
+            'found' => 'Found',
+            'accepted' => 'Accepted',
+            'rejected' => 'Rejected',
+            'inserted' => 'Inserted',
+            'existing' => 'Already present',
+            'failed' => 'Failed',
+            'error' => 'Error',
+        ],
+        'summary' => [
+            'metric' => 'Users',
+            'count' => 'Count',
+            'users' => 'All users (without seed accounts)',
+            'with_login' => 'With SSO login',
+            'with_inferred_login' => 'With inferred login',
+            'only_account_created' => 'Only account created',
+        ],
+        'top' => [
+            'user_id' => 'User ID',
+            'email' => 'Email',
+            'active_days' => 'Active days',
+        ],
+    ],
 ];
