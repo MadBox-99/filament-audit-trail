@@ -7,6 +7,7 @@ namespace Madbox99\FilamentAuditTrail\Tests\Fixtures;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\DisableBladeIconComponents;
 use Filament\Http\Middleware\DispatchServingFilamentEvent;
+use Filament\Pages\Dashboard;
 use Filament\Panel;
 use Filament\PanelProvider;
 use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
@@ -25,6 +26,8 @@ class AdminPanelProvider extends PanelProvider
             ->id('admin')
             ->path('admin')
             ->tenant(Team::class)
+            ->login()
+            ->pages([Dashboard::class])
             ->plugins([
                 FilamentAuditTrailPlugin::make(),
             ])
