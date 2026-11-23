@@ -253,3 +253,39 @@ it('forgets the records of a rule that failed and was rolled back', function ():
         ->and($report->topUsers())->toBe([['user_id' => $user, 'email' => DB::table('users')->value('email'), 'active_days' => 1]])
         ->and(AuditEvent::query()->pluck('evidence_key')->all())->toBe(['k:0']);
 });
+
+it('exposes only written or already stored records to later rules', function (): void {
+    $user = insertUser();
+    DB::unprepared("CREATE TRIGGER fail_bad BEFORE INSERT ON audit_events WHEN NEW.evidence_key = 'a:bad' BEGIN SELECT RAISE(ABORT, 'nope'); END;");
+    reconstruct([fakeRule('a', [evidence($user, '2026-03-01 09:00:00', 'a:stored')])]);
+    $seen = new ArrayObject;
+
+    $probe = new class($seen) implements Rule
+    {
+        public function __construct(private ArrayObject $seen) {}
+
+        public function name(): string
+        {
+            return 'probe';
+        }
+
+        public function collect(ReconstructionContext $ctx): iterable
+        {
+            $this->seen->exchangeArray(array_map(fn (EvidenceRecord $r): string => $r->evidenceKey, $ctx->accepted()));
+
+            return [];
+        }
+    };
+
+    $report = reconstruct([
+        fakeRule('a', [
+            evidence($user, '2026-03-01 09:00:00', 'a:stored'),
+            evidence($user, '2026-03-01 10:00:00', 'a:bad'),
+            evidence($user, '2026-03-01 11:00:00', 'a:new'),
+        ]),
+        $probe,
+    ]);
+
+    expect($report->rule('a'))->toMatchArray(['accepted' => 3, 'inserted' => 1, 'existing' => 1, 'failed' => 1])
+        ->and($seen->getArrayCopy())->toBe(['a:stored', 'a:new']);
+});

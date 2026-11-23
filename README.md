@@ -40,27 +40,33 @@ $panel->plugin(
 );
 ```
 
+`adminUsing()` is required to give anyone the full view: without it **nobody** is an admin (fail-closed), and
+every user sees only the scoped view described under "Who sees what".
+
 The plugin adds the audit resource to the panel and puts a page-view middleware on the panel.
 Live recording of logins, model changes and actions works application-wide once the package is installed.
 
 ## What is recorded live
 
 Every row carries the time, the user (id and email snapshot), the Filament tenant (`team_id`) and panel, URL,
-route, method, IP, user agent and a SHA-256 hash of the session id. Each event type can be switched off in
+route, method, IP, user agent and a SHA-256 hash of the session id. `occurred_at` and `created_at` keep
+milliseconds. Each event type can be switched off in
 `events`; the whole package with `AUDIT_TRAIL_ENABLED=false`. A recording error is reported with `report()`
 and never breaks the request.
 
 | Event | Recorded when |
 |---|---|
-| `login`, `logout`, `login_failed` | Laravel's `Login`, `Logout` and `Failed` events of the configured `guard` (default `web`); other guards are ignored. `login_failed` stores the entered email, never the password. |
+| `login`, `logout`, `login_failed` | Laravel's `Login`, `Logout` and `Failed` events of the configured `guard` (default `web`); other guards are ignored. `login_failed` stores the entered email (cut to 255 characters), never the password. |
 | `page_view` | A full-page `GET` with a 2xx response by an authenticated user inside a panel that has the plugin. Livewire requests (`X-Livewire` header) and paths matching `page_views.exclude_paths` are skipped. |
 | `action_mounted`, `action_executed` | A Filament action is opened or run, caught through Livewire's call hook (page, table and record actions). See the limits below. |
 | `created`, `updated`, `deleted`, `restored` | An Eloquent model event, **only when a user is authenticated on the configured guard** (so queued jobs and console commands write nothing). Tables and classes in `models.exclude` are skipped. `updated` stores only the changed attributes (`old` and `new`) and ignores a change of `updated_at` alone. Restoring a soft-deleted model writes one `restored` row, not an extra `updated`. |
 | `import`, `export` | A Filament `Import` or `Export` record is created: one row per run (file name, importer/exporter, total rows), not one per imported row. |
 
-Redaction: attributes whose name matches `redact` (case-insensitive wildcards; default `password`,
-`remember_token`, `two_factor_*`, `*token*`, `*secret*`, `*api_key*`) and the model's `$hidden` attributes
-are never stored. If `properties` would exceed `max_properties_bytes` (default 16384) it is replaced by
+Redaction: attributes whose name matches `redact` (case-insensitive wildcards; default `*password*`,
+`remember_token`, `two_factor_*`, `*token*`, `*secret*`, `*api_key*`, `*private_key*`, `*credential*`) and the
+model's `$hidden` attributes are never stored. In every recorded URL the value of a sensitive query parameter
+is replaced by `[redacted]`: a parameter (or a nested key of it) named `token`, `signature`, `code`, `password`,
+`secret` or `key`, or whose name contains `token`, `password` or `secret`, or ends in `_key` (case-insensitive). If `properties` would exceed `max_properties_bytes` (default 16384) it is replaced by
 `{"_truncated": true}`.
 
 ### Actions: how they are recorded and what is not
@@ -88,10 +94,15 @@ security and evidentiary log.
 Every panel user sees the menu item; the list and the view page use the same scope, so another team's event
 cannot be opened by URL (it returns 404).
 
-- **Admin** (`adminUsing()` callback; default: `$user->isAdmin()` if the method exists): all events, filterable by team.
-- **Non-admin on a tenant panel:** events with `team_id` = the current tenant, plus events without a `team_id`
-  whose user is currently a member of the tenant (so tenant-less logins show up). The membership table is
-  `reconstruct.team_user_table`.
+- **Admin** (the `adminUsing()` callback returns true; without the callback nobody is an admin): all events,
+  filterable by team.
+- **Non-admin on a tenant panel:** events with `team_id` = the current tenant, plus the team-less **sign-in**
+  events (`login`, `login_inferred`, `logout`, `login_failed`) of users who are currently members of the
+  tenant. Any other team-less row (for example a change whose team is unknown) is not shown on a tenant panel:
+  it may belong to another team of a user who is in several teams. The membership pivot is
+  `visibility.team_user_table` (default: `reconstruct.team_user_table`) with the columns
+  `visibility.team_foreign_key` / `visibility.user_foreign_key`, read on the user model's connection (when the
+  audit table is on another connection, the member ids are read first and embedded in the query).
 - **Non-admin on a panel without a tenant:** only their own events.
 
 The resource is read-only (no create, edit or delete). The table has filters for event, source, user, team and
@@ -111,6 +122,9 @@ date range, and an export action.
 | `page_views.exclude_paths` | `livewire*`, `up`, `_debugbar*`, `filament/assets*`, `storage/*` | `Request::is()` patterns that are not recorded. |
 | `models.exclude` | `audit_events`, `sessions`, `jobs`, `job_batches`, `failed_jobs`, `cache`, `cache_locks`, `notifications`, `sync_logs`, `oauth_*`, `telescope_*`, `pulse_*`, `activity_log` | `fnmatch` patterns matched against the model class and table name. |
 | `redact` | see above | Attribute-name patterns that are never stored. |
+| `visibility.team_user_table` | `null` (= `reconstruct.team_user_table`) | Membership pivot for the non-admin view. |
+| `visibility.team_foreign_key` | `team_id` | Team column of the pivot. |
+| `visibility.user_foreign_key` | `user_id` | User column of the pivot. |
 | `max_properties_bytes` | `16384` | Size cap of `properties`. |
 | `reconstruct.ignored_timestamps` | `2025-10-10 09:00:00`, `2025-10-01 12:00:00` | Placeholder timestamps; evidence with exactly this time is rejected. |
 | `reconstruct.excluded_email_patterns` | `%@example.%` | SQL-LIKE style patterns of seed/test users that are excluded. |
@@ -118,7 +132,7 @@ date range, and an export action.
 | `reconstruct.publisher` | `false` | `true` on the SSO publisher app: a verified registration then counts as an inferred login. |
 | `reconstruct.actor_columns` | `[]` | Allowlist `table => user column` for the `actor_columns` rule. |
 | `reconstruct.sole_member_tables` | `[]` | Allowlist of tables with a `team_id` for the `sole_member_team` rule. |
-| `reconstruct.team_user_table` | `team_user` | Team membership pivot (`team_id`, `user_id`), also used for visibility. |
+| `reconstruct.team_user_table` | `team_user` | Team membership pivot (`team_id`, `user_id`) of the `sole_member_team` rule; the visibility default. |
 | `reconstruct.teams_table` | `teams` | Teams table, read for the team creation time. |
 | `reconstruct.sso_auth_code_window_minutes` | `11` | `export-sso`: a token counts only if an authorization code of the same user and client expires within this many minutes after it. |
 | `reconstruct.sso_auth_code_ttl_minutes` | `10` | Passport's authorization code lifetime. |
@@ -150,15 +164,21 @@ app's `APP_URL`. Set `reconstruct.publisher` to `true` on the publisher itself.
 Options: `--rule=name` (repeatable) limits the run, `--since=` and `--until=` limit the evidence time (a bare
 date in `--until` means the end of that day).
 
+**Default cutoff:** without `--until`, evidence stops just before the earliest `source = live` row, because live
+recording already covers the time after it and reconstructing it again would duplicate those events. The
+command prints the effective cutoff. If there is no live row yet, there is no cutoff. Pass `--until` to
+override it (for example when live recording was switched off for a while). Note that rows from after the
+cutoff (also `account_created` of users registered later) are then not reconstructed.
+
 ### Rules
 
 Rules run in this order; `derived_login` always last because it reads the other rules' results.
 
 | Rule | Source record | Result |
 |---|---|---|
-| `activity_log` | spatie `activity_log` rows whose causer is a user | `created`/`updated`/`deleted`/`restored` by event name, anything else `action_executed`; properties carried over, redacted. |
+| `activity_log` | spatie `activity_log` rows whose causer is a user | `created`/`updated`/`deleted`/`restored` by event name, anything else `action_executed`; properties carried over, redacted. `team_id` comes from the subject row when its table has a `team_id` column and the row still exists; otherwise it stays empty. |
 | `imports_exports` | Filament `imports` and `exports` rows | `import` / `export` at `created_at` by `user_id`. |
-| `account_created` | `users.created_at` | `account_created` with **no actor** (in receiver apps a sync created the account). On the publisher, if the user has `email_verified_at` and `created_at` is not a placeholder, also `login_inferred` at `created_at` (`registration`) and at `email_verified_at` (`email_verification`). |
+| `account_created` | `users.created_at` | `account_created` with **no actor** (in receiver apps a sync created the account). On the publisher, if the user has `email_verified_at` and `created_at` is not a placeholder, also `login_inferred` at `created_at` (`registration`) and at `email_verified_at` (`email_verification`); the second is skipped when `email_verified_at` equals `created_at` (verified in the moment of registration). |
 | `actor_columns` | Tables in `reconstruct.actor_columns` | `created` by the user the named column points to. |
 | `sole_member_team` | Tables in `reconstruct.sole_member_tables` | `created` by the only member of the row's team. Known limit: former members are invisible; the evidence note says so. |
 | `sso_login` | The `export-sso` file (`--sso-file`) | `login` at the exact token time, `inferred = false`. |
@@ -174,7 +194,7 @@ Evidence that is found but not accepted is counted per reason in the report and 
 | `excluded_user` | The user's email matches `excluded_email_patterns`. |
 | `out_of_range` | Outside `--since` / `--until`. |
 | `before_account` | The evidence is older than the user's real `created_at`. |
-| `unknown_user` | The record names a user that does not exist here (also an SSO token of no known user). |
+| `unknown_user` | The record names a user that does not exist here (`activity_log`, `imports_exports`, `actor_columns`, and an SSO token of no known user). |
 | `team_bootstrap` | `actor_columns` / `sole_member_team`: the row was created within `team_creation_grace_seconds` of its team (automatic base data). If the team's creation time is unknown, the row is accepted with an evidence note and the report warns that the check was not applied. |
 | `member_joined_later` | `sole_member_team`: the member joined after the row was created, so they cannot be its author. |
 | `uuid_mismatch` | `sso_login`: the email matches a local user whose uuid differs from the token's user. Same email, different person. |
@@ -188,7 +208,8 @@ Evidence that is found but not accepted is counted per reason in the report and 
 - `evidence`: JSON that points at the source record: `rule`, `table`, `id`, `column`, and where useful `note`,
   `member_since`, `app_host`, `auth_code_id`, `source_rule`. Every reconstructed row has it.
 - `evidence_key`: the unique idempotency key (for example `activity_log:12`, `posts:7:actor`, `posts:7:sole`,
-  `sso:<token id>`, `derived_login:<user>:<day>`, `users:<id>:created`).
+  `sso:<token id>`, `derived_login:<user>:<day>`, `users:<id>:created`, `users:<id>:registration`,
+  `users:<id>:verified`).
 
 ### The package never fabricates entries
 
@@ -208,12 +229,23 @@ Filament-akciók és adatváltozások rögzítése, plusz a múlt helyreállít�
 
 - **Telepítés:** VCS repó bejegyzés a `composer.json`-ba, `composer require madbox-99/filament-audit-trail:^0.1`,
   `php artisan migrate`, a plugin a panelben: `FilamentAuditTrailPlugin::make()->adminUsing(fn ($user) => ...)`.
-- **Láthatóság:** admin mindent lát; nem admin tenantos panelen a tenant eseményeit (és a tenant jelenlegi tagjainak
-  tenant nélküli eseményeit); tenant nélküli panelen csak a sajátját. Más csapat eseménye URL-ből sem nyitható (404).
+  Az `adminUsing()` kötelező: nélküle senki sem admin (fail-closed).
+- **Láthatóság:** admin mindent lát; nem admin tenantos panelen a tenant eseményeit, plusz a tenant jelenlegi
+  tagjainak tenant nélküli belépés-jellegű eseményeit (`login`, `login_inferred`, `logout`, `login_failed`); más
+  tenant nélküli sort nem (több csapatos user másik csapatáé lehet). Tenant nélküli panelen csak a sajátját. Más
+  csapat eseménye URL-ből sem nyitható (404). A tagsági pivot: `visibility.*` (tábla, oszlopnevek), a user
+  modell kapcsolatán olvasva.
+- **Adatvédelem:** érzékeny attribútumok (`*password*`, `*token*`, `*secret*`, `*credential*` stb.) nem kerülnek
+  a `properties`-be; a rögzített URL-ben az érzékeny query-paraméterek (token, signature, code, password,
+  secret, key) értéke `[redacted]`.
 - **Ismert korlátok:** az URL-ből felnyitott akciót nem rögzíti; a saját `action()`-jében leállított inline akciót
   végrehajtottként számolja. Adatváltozást csak bejelentkezett felhasználóhoz ír.
 - **Helyreállítás:** `--suggest` -> az allowlist a configba -> `--dry-run` -> valódi futás. A publisheren előbb
-  `audit-trail:export-sso`, majd minden appon `--sso-file`.
+  `audit-trail:export-sso`, majd minden appon `--sso-file`. `--until` nélkül a nyomok a legkorábbi élő
+  (`source = live`) esemény előtt állnak meg, hogy ne duplikálja az élő naplót; a parancs kiírja a határt.
+- **Publisher:** a megerősített regisztráció levezetett belépés (`login_inferred`) a regisztráció és az
+  e-mail-megerősítés idején (`users:<id>:registration`, `users:<id>:verified`); ha a kettő ugyanaz a pillanat,
+  csak egy.
 - **Jelölések:** `source` (`live` / `reconstructed`), `inferred` (levezetett belépés ideje nem a valódi belépés
   ideje), `evidence` (a forrás-rekord), `evidence_key` (idempotencia).
 - **Kitalált bejegyzés nincs:** belépés csak valódi OAuth-engedélyezésből vagy valódi, aznapi művelet-nyomból

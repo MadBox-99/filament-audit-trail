@@ -34,6 +34,10 @@ final class AuditRecorder
                 $attributes['properties'] = PropertySanitizer::sanitize($attributes['properties']);
             }
 
+            if (isset($attributes['url']) && is_string($attributes['url'])) {
+                $attributes['url'] = PropertySanitizer::redactUrl($attributes['url']);
+            }
+
             return AuditEvent::query()->create($attributes);
         } catch (Throwable $e) {
             report($e);
@@ -49,7 +53,7 @@ final class AuditRecorder
     {
         try {
             $attributes['source'] = AuditSource::Reconstructed->value;
-            $attributes['created_at'] = now();
+            $attributes['created_at'] = now()->format('Y-m-d H:i:s.v');
 
             if (($attributes['event'] ?? null) instanceof AuditEventType) {
                 $attributes['event'] = $attributes['event']->value;

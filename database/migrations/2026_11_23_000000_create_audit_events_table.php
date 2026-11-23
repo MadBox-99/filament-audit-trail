@@ -40,10 +40,12 @@ return new class extends Migration
             $table->boolean('inferred')->default(false);
             $table->json('evidence')->nullable();
             $table->string('evidence_key')->nullable()->unique();
-            $table->timestamp('created_at')->nullable();
+            $table->timestamp('created_at', 3)->nullable();
             $table->char('hash', 64)->nullable();
 
             $table->index(['subject_type', 'subject_id']);
+            $table->index(['team_id', 'occurred_at']);
+            $table->index(['user_id', 'occurred_at']);
         });
     }
 

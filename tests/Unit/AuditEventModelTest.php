@@ -2,7 +2,9 @@
 
 declare(strict_types=1);
 
+use Carbon\CarbonImmutable;
 use Illuminate\Database\QueryException;
+use Illuminate\Support\Facades\Schema;
 use Madbox99\FilamentAuditTrail\Enums\AuditEventType;
 use Madbox99\FilamentAuditTrail\Enums\AuditSource;
 use Madbox99\FilamentAuditTrail\Exceptions\AuditEventImmutable;
@@ -56,4 +58,25 @@ it('has translated enum labels', function (): void {
     app()->setLocale('hu');
 
     expect(AuditEventType::LoginInferred->getLabel())->toBe('Belépés (levezetett)');
+});
+
+it('keeps milliseconds of occurred_at and created_at', function (): void {
+    $this->travelTo(CarbonImmutable::parse('2026-03-01 10:00:00.123'));
+
+    $id = makeEvent(['occurred_at' => now()])->id;
+    $event = AuditEvent::findOrFail($id);
+
+    expect($event->occurred_at->format('Y-m-d H:i:s.v'))->toBe('2026-03-01 10:00:00.123')
+        ->and($event->created_at?->format('Y-m-d H:i:s.v'))->toBe('2026-03-01 10:00:00.123')
+        ->and($event->getRawOriginal('occurred_at'))->toBe('2026-03-01 10:00:00.123');
+});
+
+it('serialises its dates with milliseconds', function (): void {
+    expect((new AuditEvent)->getDateFormat())->toBe('Y-m-d H:i:s.v');
+});
+
+it('indexes team and user timelines', function (): void {
+    $indexes = array_map(fn (array $index): array => $index['columns'], Schema::getIndexes('audit_events'));
+
+    expect($indexes)->toContain(['team_id', 'occurred_at'], ['user_id', 'occurred_at']);
 });

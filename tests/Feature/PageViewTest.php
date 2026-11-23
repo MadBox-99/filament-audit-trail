@@ -98,3 +98,22 @@ it('does not record excluded paths', function (): void {
 
     expect(pageViews()->count())->toBe(0);
 });
+
+it('redacts sensitive query parameters of the recorded url', function (): void {
+    [$user, $team] = pageViewFixture();
+
+    $this->actingAs($user)
+        ->get('/admin/'.$team->getKey().'?page=2&token=t1&Signature=s1&code=c1&PASSWORD=p1&secret=x1&key=k1&access_token=a1&api_key=z1&filter[reset_token]=r1')
+        ->assertSuccessful();
+
+    $url = (string) pageViews()->sole()->url;
+
+    expect($url)->toContain('page=2')
+        ->and($url)->toContain('token=[redacted]')
+        ->and($url)->toContain('Signature=[redacted]')
+        ->and($url)->toContain('code=[redacted]')
+        ->and($url)->toContain('PASSWORD=[redacted]')
+        ->and($url)->toContain('key=[redacted]')
+        ->and($url)->not->toContain('t1')->not->toContain('s1')->not->toContain('c1')->not->toContain('p1')
+        ->not->toContain('x1')->not->toContain('k1')->not->toContain('a1')->not->toContain('z1')->not->toContain('r1');
+});

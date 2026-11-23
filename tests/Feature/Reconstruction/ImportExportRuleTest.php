@@ -66,3 +66,15 @@ it('attributes polymorphic import and export users only to the user model', func
     expect($report->rule('imports_exports')['found'])->toBe(1)
         ->and(AuditEvent::query()->sole()->evidence_key)->toBe('imports:'.$mine);
 });
+
+it('rejects imports and exports of a user that does not exist here', function (): void {
+    DB::table('exports')->insert([
+        'file_disk' => 'local', 'exporter' => 'App\\Exp', 'total_rows' => 9,
+        'user_id' => 999, 'created_at' => '2026-03-02 11:00:00', 'updated_at' => '2026-03-02 11:00:00',
+    ]);
+
+    $report = reconstruct([new ImportExportRule]);
+
+    expect(AuditEvent::query()->count())->toBe(0)
+        ->and($report->rule('imports_exports')['rejected'])->toBe(['unknown_user' => 1]);
+});

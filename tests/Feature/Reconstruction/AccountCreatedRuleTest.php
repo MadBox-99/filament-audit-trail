@@ -67,3 +67,13 @@ it('infers no login for a placeholder creation time, even when verified', functi
 
     expect(AuditEvent::query()->where('event', 'login_inferred')->count())->toBe(0);
 });
+
+it('infers only the registration login when the email was verified at the moment of registration', function (): void {
+    config(['audit-trail.reconstruct.publisher' => true]);
+    $user = insertUser(['created_at' => '2026-01-05 07:30:00', 'email_verified_at' => '2026-01-05 07:30:00']);
+
+    reconstruct([new AccountCreatedRule]);
+
+    expect(AuditEvent::query()->where('event', 'login_inferred')->pluck('evidence_key')->all())
+        ->toBe(['users:'.$user.':registration']);
+});

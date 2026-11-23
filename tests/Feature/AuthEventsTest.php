@@ -61,3 +61,9 @@ it('ignores events of other guards', function (): void {
 
     expect(AuditEvent::query()->count())->toBe(0);
 });
+
+it('truncates a typed email longer than the column', function (): void {
+    Auth::attempt(['email' => str_repeat('é', 300).'@corp.test', 'password' => 'rossz']);
+
+    expect(mb_strlen((string) AuditEvent::query()->sole()->user_email))->toBe(255);
+});

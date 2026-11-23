@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-$sensitive = ['password', 'remember_token', 'two_factor_*', '*token*', '*secret*', '*api_key*'];
+$sensitive = ['*password*', 'remember_token', 'two_factor_*', '*token*', '*secret*', '*api_key*', '*private_key*', '*credential*'];
 
 return [
     'enabled' => (bool) env('AUDIT_TRAIL_ENABLED', true),
@@ -42,6 +42,14 @@ return [
     ],
 
     'redact' => $sensitive,
+
+    // Who sees team-less rows on a tenant panel: the tenant's current members, read from this pivot
+    // on the user model's connection. team_user_table null = reconstruct.team_user_table.
+    'visibility' => [
+        'team_user_table' => null,
+        'team_foreign_key' => 'team_id',
+        'user_foreign_key' => 'user_id',
+    ],
 
     'max_properties_bytes' => 16384,
 

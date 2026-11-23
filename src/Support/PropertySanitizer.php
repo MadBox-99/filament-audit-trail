@@ -6,6 +6,58 @@ namespace Madbox99\FilamentAuditTrail\Support;
 
 final class PropertySanitizer
 {
+    /** Query parameter names whose value is never stored (case-insensitive). */
+    private const array SENSITIVE_QUERY_NAMES = ['token', 'signature', 'code', 'password', 'secret', 'key'];
+
+    /**
+     * Replaces the value of sensitive query parameters with `[redacted]`: a parameter (or a
+     * nested key of it) named token, signature, code, password, secret or key, or whose name
+     * contains token, password or secret, or ends in `_key` (case-insensitive).
+     */
+    public static function redactUrl(string $url): string
+    {
+        $queryStart = strpos($url, '?');
+
+        if ($queryStart === false) {
+            return $url;
+        }
+
+        $fragmentStart = strpos($url, '#', $queryStart);
+        $query = $fragmentStart === false ? substr($url, $queryStart + 1) : substr($url, $queryStart + 1, $fragmentStart - $queryStart - 1);
+        $fragment = $fragmentStart === false ? '' : substr($url, $fragmentStart);
+
+        $pairs = array_map(static function (string $pair): string {
+            $equals = strpos($pair, '=');
+
+            if ($equals === false) {
+                return $pair;
+            }
+
+            $name = substr($pair, 0, $equals);
+
+            return self::isSensitiveQueryName(urldecode($name)) ? $name.'=[redacted]' : $pair;
+        }, explode('&', $query));
+
+        return substr($url, 0, $queryStart + 1).implode('&', $pairs).$fragment;
+    }
+
+    private static function isSensitiveQueryName(string $name): bool
+    {
+        $segments = array_filter(preg_split('/[\[\]]+/', mb_strtolower($name)) ?: [], static fn (string $s): bool => $s !== '');
+
+        foreach ($segments as $segment) {
+            if (in_array($segment, self::SENSITIVE_QUERY_NAMES, true)
+                || str_contains($segment, 'token')
+                || str_contains($segment, 'password')
+                || str_contains($segment, 'secret')
+                || str_ends_with($segment, '_key')) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /**
      * @param  array<array-key, mixed>  $data
      * @param  list<string>  $extraHidden

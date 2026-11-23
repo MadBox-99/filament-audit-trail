@@ -11,8 +11,9 @@ use Madbox99\FilamentAuditTrail\Reconstruction\ReconstructionContext;
 /**
  * users.created_at → account_created, without an actor (in receiver apps the
  * account is made by the sync). On the publisher a verified registration is a
- * real sign-in: login_inferred at created_at and at email_verified_at, but
- * only when created_at is a real (non-placeholder) value.
+ * real sign-in: login_inferred at created_at and at email_verified_at (the latter
+ * only when it differs from created_at), but only when created_at is a real
+ * (non-placeholder) value.
  */
 final class AccountCreatedRule implements Rule
 {
@@ -54,6 +55,12 @@ final class AccountCreatedRule implements Rule
                 ['registration', 'created_at', $user['created_at'], 'registration'],
                 ['email_verification', 'email_verified_at', $user['email_verified_at'], 'verified'],
             ] as [$rule, $column, $at, $suffix]) {
+                // Verified in the same instant as registered (e.g. an SSO or admin-made account):
+                // one event, not a second sign-in.
+                if ($suffix === 'verified' && $at->equalTo($user['created_at'])) {
+                    continue;
+                }
+
                 yield new EvidenceRecord(
                     type: AuditEventType::LoginInferred,
                     occurredAt: $at,

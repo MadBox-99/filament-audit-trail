@@ -57,7 +57,9 @@ final class Reconstructor
         $report->startRule($name);
 
         // Committed to the context, the report's user stats and the handled keys
-        // only once the rule has finished: a rolled-back rule leaves no trace.
+        // only once the rule has finished: a rolled-back rule leaves no trace. Only records
+        // that are stored (inserted now or already there) are committed, so later rules
+        // never cite a row whose write failed; a dry run commits every accepted record.
         /** @var list<array{EvidenceRecord, int|null}> $accepted */
         $accepted = [];
         /** @var array<string, true> $keys */
@@ -81,16 +83,15 @@ final class Reconstructor
                 if (str_contains((string) ($record->evidence['note'] ?? ''), ReconstructionContext::UNKNOWN_TEAM_CREATION_NOTE)) {
                     $report->bootstrapUnchecked($name);
                 }
-                $accepted[] = [$record, $this->context->concernedUserId($record)];
                 $buffer[] = $record;
 
                 if (count($buffer) >= self::CHUNK) {
-                    $this->flush($name, $buffer, $dryRun, $report, $keys);
+                    $this->flush($name, $buffer, $dryRun, $report, $keys, $accepted);
                     $buffer = [];
                 }
             }
 
-            $this->flush($name, $buffer, $dryRun, $report, $keys);
+            $this->flush($name, $buffer, $dryRun, $report, $keys, $accepted);
         };
 
         try {
@@ -147,8 +148,9 @@ final class Reconstructor
     /**
      * @param  list<EvidenceRecord>  $records
      * @param  array<string, true>  $keys  keys handled by the current rule
+     * @param  list<array{EvidenceRecord, int|null}>  $accepted  records to commit once the rule has finished
      */
-    private function flush(string $rule, array $records, bool $dryRun, ReconstructionReport $report, array &$keys): void
+    private function flush(string $rule, array $records, bool $dryRun, ReconstructionReport $report, array &$keys, array &$accepted): void
     {
         if ($records === []) {
             return;
@@ -161,18 +163,22 @@ final class Reconstructor
 
             if (isset($existing[$key]) || isset($this->handledKeys[$key]) || isset($keys[$key])) {
                 $report->existing($rule);
+                $accepted[] = [$record, $this->context->concernedUserId($record)];
 
                 continue;
             }
 
-            $keys[$key] = true;
-
             if ($dryRun) {
+                $keys[$key] = true;
+                $accepted[] = [$record, $this->context->concernedUserId($record)];
+
                 continue;
             }
 
             if ($this->recorder->recordReconstructed($record->toAttributes())) {
+                $keys[$key] = true;
                 $report->inserted($rule);
+                $accepted[] = [$record, $this->context->concernedUserId($record)];
             } else {
                 $report->failed($rule);
             }

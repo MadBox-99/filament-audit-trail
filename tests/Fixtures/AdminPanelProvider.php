@@ -30,7 +30,8 @@ class AdminPanelProvider extends PanelProvider
             ->pages([Dashboard::class])
             ->resources([PostResource::class])
             ->plugins([
-                FilamentAuditTrailPlugin::make(),
+                FilamentAuditTrailPlugin::make()
+                    ->adminUsing(fn (User $user): bool => $user->isAdmin()),
             ])
             ->middleware([
                 EncryptCookies::class,

@@ -67,6 +67,7 @@ final class ImportExportRule implements Rule
                     properties: $properties,
                     evidence: ['rule' => $this->name(), 'table' => $table, 'id' => $row['id'], 'column' => 'created_at'],
                     evidenceKey: $table.':'.$row['id'],
+                    rejection: array_key_exists($userId, $ctx->users()) ? null : 'unknown_user',
                 );
             }
         }

@@ -27,3 +27,29 @@ it('replaces oversized properties with a truncated marker', function (): void {
 
     expect($result)->toBe(['_truncated' => true]);
 });
+
+it('strips every password-like, private key and credential attribute by default', function (): void {
+    $result = PropertySanitizer::sanitize([
+        'smtp_password' => 'a',
+        'password_confirmation' => 'b',
+        'Password' => 'c',
+        'ssh_private_key' => 'd',
+        'aws_credentials' => 'e',
+        'credential' => 'f',
+        'name' => 'kept',
+    ]);
+
+    expect($result)->toBe(['name' => 'kept']);
+});
+
+it('redacts sensitive query parameters of a url', function (string $url, string $expected): void {
+    expect(PropertySanitizer::redactUrl($url))->toBe($expected);
+})->with([
+    'none' => ['https://a.test/x', 'https://a.test/x'],
+    'plain' => ['https://a.test/x?page=2&sort=name', 'https://a.test/x?page=2&sort=name'],
+    'token' => ['https://a.test/x?token=abc&page=2', 'https://a.test/x?token=[redacted]&page=2'],
+    'case' => ['https://a.test/x?Code=abc', 'https://a.test/x?Code=[redacted]'],
+    'nested' => ['https://a.test/x?data%5Bpassword%5D=p', 'https://a.test/x?data%5Bpassword%5D=[redacted]'],
+    'no value' => ['https://a.test/x?secret', 'https://a.test/x?secret'],
+    'monkey' => ['https://a.test/x?monkey=1', 'https://a.test/x?monkey=1'],
+]);

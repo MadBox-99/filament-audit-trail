@@ -22,11 +22,6 @@ final class FilamentAuditTrailPlugin implements Plugin
         return new self;
     }
 
-    public static function defaultAdminCheck(Authenticatable $user): bool
-    {
-        return method_exists($user, 'isAdmin') && $user->isAdmin();
-    }
-
     public function getId(): string
     {
         return 'filament-audit-trail';
@@ -51,13 +46,16 @@ final class FilamentAuditTrailPlugin implements Plugin
         return $this->navigationGroup;
     }
 
+    /**
+     * Fail closed: without an adminUsing() callback nobody is an admin.
+     */
     public function isAdmin(Authenticatable $user): bool
     {
         if ($this->adminUsing instanceof Closure) {
             return (bool) ($this->adminUsing)($user);
         }
 
-        return self::defaultAdminCheck($user);
+        return false;
     }
 
     public function register(Panel $panel): void

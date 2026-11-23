@@ -90,6 +90,8 @@ return [
         'missing_table' => ':rule: :table — table does not exist (configured; skipped).',
         'missing_column' => ':rule: :table.:column — column does not exist (configured; skipped).',
         'dry_run' => 'Dry run: nothing was written.',
+        'cutoff_live' => 'Evidence cutoff: before :time, the earliest live event (live recording covers the time after it; pass --until to override).',
+        'cutoff_explicit' => 'Evidence cutoff: up to :time (--until).',
         'invalid_time' => 'Invalid --since or --until value.',
         'unknown_rule' => 'Unknown rule(s): :rules. Known rules: :known.',
         'columns' => [

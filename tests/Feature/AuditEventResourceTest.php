@@ -2,12 +2,17 @@
 
 declare(strict_types=1);
 
+use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Livewire\Livewire;
 use Madbox99\FilamentAuditTrail\Filament\Exports\AuditEventExporter;
 use Madbox99\FilamentAuditTrail\Filament\Resources\AuditEvents\AuditEventResource;
 use Madbox99\FilamentAuditTrail\Filament\Resources\AuditEvents\Pages\ListAuditEvents;
 use Madbox99\FilamentAuditTrail\Filament\Resources\AuditEvents\Pages\ViewAuditEvent;
+use Madbox99\FilamentAuditTrail\FilamentAuditTrailPlugin;
 use Madbox99\FilamentAuditTrail\Models\AuditEvent;
 use Madbox99\FilamentAuditTrail\Support\AuditVisibility;
 use Madbox99\FilamentAuditTrail\Tests\Fixtures\Team;
@@ -138,4 +143,95 @@ it('works under strict authorization', function (): void {
 
     expect(AuditEventResource::canViewAny())->toBeTrue()
         ->and(AuditEventResource::getViewAuthorizationResponse($this->aEvent)->allowed())->toBeTrue();
+});
+
+it('hides team-less non-login events of a multi-team user from the other teams', function (): void {
+    $multi = User::create(['name' => 'Mu', 'email' => 'mu@corp.test']);
+    $multi->teams()->attach([$this->teamA->id, $this->teamB->id]);
+    $leak = auditRow(['team_id' => null, 'user_id' => $multi->id, 'user_email' => 'mu@corp.test', 'event' => 'updated', 'properties' => json_encode(['old' => ['title' => 'B secret']])]);
+    $login = auditRow(['team_id' => null, 'user_id' => $multi->id, 'user_email' => 'mu@corp.test', 'event' => 'login']);
+
+    listAs($this->member, $this->teamA)
+        ->assertCanSeeTableRecords([$login])
+        ->assertCanNotSeeTableRecords([$leak]);
+
+    $this->actingAs($this->member)->get(
+        ViewAuditEvent::getUrl(['record' => $leak], panel: 'admin', tenant: $this->teamA)
+    )->assertNotFound();
+
+    $ids = listAs($this->member, $this->teamA)->instance()->getTableQueryForExport()->pluck('id')->all();
+    expect($ids)->toContain($login->id)->not->toContain($leak->id);
+});
+
+it('shows team-less login, inferred login, logout and failed login rows of tenant members', function (string $event): void {
+    $row = auditRow(['team_id' => null, 'user_id' => $this->member->id, 'event' => $event]);
+
+    listAs($this->member, $this->teamA)->assertCanSeeTableRecords([$row]);
+})->with(['login', 'login_inferred', 'logout', 'login_failed']);
+
+it('makes nobody admin without an adminUsing callback', function (): void {
+    expect(FilamentAuditTrailPlugin::make()->isAdmin($this->admin))->toBeFalse();
+
+    Filament::setCurrentPanel(null);
+    expect(AuditVisibility::isAdmin($this->admin))->toBeFalse();
+});
+
+it('reads a custom membership pivot', function (): void {
+    Schema::create('memberships', function (Blueprint $table): void {
+        $table->foreignId('workspace_id');
+        $table->foreignId('member_id');
+    });
+    DB::table('memberships')->insert(['workspace_id' => $this->teamA->id, 'member_id' => $this->member->id]);
+    DB::table('team_user')->delete();
+    config([
+        'audit-trail.visibility.team_user_table' => 'memberships',
+        'audit-trail.visibility.team_foreign_key' => 'workspace_id',
+        'audit-trail.visibility.user_foreign_key' => 'member_id',
+    ]);
+    Filament::setCurrentPanel('admin');
+
+    $ids = AuditVisibility::scope(AuditEvent::query(), $this->member, $this->teamA)->pluck('id')->all();
+
+    expect($ids)->toEqualCanonicalizing([$this->aEvent->id, $this->aLogin->id]);
+});
+
+it('reads the membership pivot on the user connection when the audit table lives elsewhere', function (): void {
+    config(['database.connections.audit' => ['driver' => 'sqlite', 'database' => ':memory:', 'prefix' => '']]);
+    config(['audit-trail.connection' => 'audit']);
+    DB::setDefaultConnection('audit'); // as the migrator does for a migration's getConnection()
+    (require __DIR__.'/../../database/migrations/2026_11_23_000000_create_audit_events_table.php')->up();
+    DB::setDefaultConnection('testing');
+    $login = auditRow(['team_id' => null, 'user_id' => $this->member->id, 'event' => 'login']);
+    $other = auditRow(['team_id' => null, 'user_id' => $this->bMember->id, 'event' => 'login']);
+    Filament::setCurrentPanel('admin');
+
+    $ids = AuditVisibility::scope(AuditEvent::query(), $this->member, $this->teamA)->pluck('id')->all();
+
+    expect($ids)->toContain($login->id)->not->toContain($other->id);
+});
+
+it('falls back to the reconstruct pivot for visibility', function (): void {
+    expect(AuditVisibility::pivot())->toBe(['team_user', 'team_id', 'user_id']);
+
+    config(['audit-trail.reconstruct.team_user_table' => 'members']);
+    expect(AuditVisibility::pivot())->toBe(['members', 'team_id', 'user_id']);
+});
+
+it('shows the export action with an exports table', function (): void {
+    listAs($this->admin, $this->teamA)->assertActionVisible(TestAction::make('export')->table());
+});
+
+it('hides the export action without an exports table', function (): void {
+    Schema::drop('exports');
+
+    listAs($this->admin, $this->teamA)->assertActionHidden(TestAction::make('export')->table());
+});
+
+it('orders by occurred_at with millisecond precision, then by id, newest first', function (): void {
+    $later = auditRow(['occurred_at' => '2026-01-01 10:00:00.200', 'user_id' => $this->admin->id]);
+    $earlier = auditRow(['occurred_at' => '2026-01-01 10:00:00.100', 'user_id' => $this->admin->id]);
+    $tieFirst = auditRow(['occurred_at' => '2026-01-01 09:00:00.000', 'user_id' => $this->admin->id]);
+    $tieSecond = auditRow(['occurred_at' => '2026-01-01 09:00:00.000', 'user_id' => $this->admin->id]);
+
+    listAs($this->admin, $this->teamA)->assertCanSeeTableRecords([$later, $earlier, $tieSecond, $tieFirst], inOrder: true);
 });

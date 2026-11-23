@@ -90,6 +90,8 @@ return [
         'missing_table' => ':rule: :table — a tábla nem létezik (konfigurálva; kihagyva).',
         'missing_column' => ':rule: :table.:column — az oszlop nem létezik (konfigurálva; kihagyva).',
         'dry_run' => 'Próbafutás: semmi nem íródott ki.',
+        'cutoff_live' => 'Nyom-határ: :time előtt, ez a legkorábbi élő esemény (utána az élő naplózás rögzít; --until-lal felülírható).',
+        'cutoff_explicit' => 'Nyom-határ: :time-ig (--until).',
         'invalid_time' => 'Érvénytelen --since vagy --until érték.',
         'unknown_rule' => 'Ismeretlen szabály(ok): :rules. Ismert szabályok: :known.',
         'columns' => [

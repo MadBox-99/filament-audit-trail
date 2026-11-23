@@ -11,6 +11,7 @@ use Madbox99\FilamentAuditTrail\Enums\AuditSource;
 use Madbox99\FilamentAuditTrail\Models\AuditEvent;
 use Madbox99\FilamentAuditTrail\Reconstruction\Rules\ActivityLogRule;
 use Madbox99\FilamentAuditTrail\Tests\Fixtures\HiddenPost;
+use Madbox99\FilamentAuditTrail\Tests\Fixtures\Post;
 use Madbox99\FilamentAuditTrail\Tests\Fixtures\User;
 
 beforeEach(function (): void {
@@ -150,3 +151,26 @@ it('drops attributes hidden on the subject model', function (string $subjectType
     'class name' => [HiddenPost::class],
     'morph alias' => ['hidden_post'],
 ]);
+
+it('rejects rows caused by a user that does not exist here', function (): void {
+    activity(['causer_id' => 999]);
+
+    $report = reconstruct([new ActivityLogRule]);
+
+    expect(AuditEvent::query()->count())->toBe(0)
+        ->and($report->rule('activity_log')['rejected'])->toBe(['unknown_user' => 1]);
+});
+
+it('takes the team from the subject row when its table has a team_id', function (): void {
+    $user = insertUser();
+    $team = insertTeam();
+    $post = insertPost($team, $user, '2026-02-01 10:00:00');
+    activity(['causer_id' => $user, 'subject_type' => Post::class, 'subject_id' => $post]);
+    activity(['causer_id' => $user, 'subject_type' => Post::class, 'subject_id' => 999]);
+    activity(['causer_id' => $user, 'subject_type' => User::class, 'subject_id' => $user]);
+    activity(['causer_id' => $user, 'subject_type' => 'App\\Models\\Gone', 'subject_id' => 1]);
+
+    reconstruct([new ActivityLogRule]);
+
+    expect(AuditEvent::query()->orderBy('id')->pluck('team_id')->all())->toBe([$team, null, null, null]);
+});

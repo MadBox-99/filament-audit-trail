@@ -41,6 +41,8 @@ final class AuditEvent extends Model
 
     protected $guarded = [];
 
+    protected $dateFormat = 'Y-m-d H:i:s.v';
+
     public function getTable(): string
     {
         /** @var string $table */

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Madbox99\FilamentAuditTrail\Filament\Resources\AuditEvents\Tables;
 
 use Filament\Actions\ExportAction;
+use Filament\Actions\Exports\Models\Export;
 use Filament\Actions\ViewAction;
 use Filament\Facades\Filament;
 use Filament\Forms\Components\DatePicker;
@@ -103,7 +104,9 @@ final class AuditEventsTable
                 ViewAction::make(),
             ])
             ->headerActions([
-                ExportAction::make()->exporter(AuditEventExporter::class),
+                ExportAction::make()
+                    ->exporter(AuditEventExporter::class)
+                    ->visible(fn (): bool => self::exportsTableExists()),
             ]);
     }
 
@@ -121,6 +124,22 @@ final class AuditEventsTable
 
         /** @var Builder<AuditEvent> */
         return AuditVisibility::scope($query, $user, Filament::getTenant());
+    }
+
+    /**
+     * Filament's export needs its `exports` table; without it the action would only fail.
+     */
+    private static function exportsTableExists(): bool
+    {
+        return once(function (): bool {
+            try {
+                $export = new Export;
+
+                return $export->getConnection()->getSchemaBuilder()->hasTable($export->getTable());
+            } catch (Throwable) {
+                return false;
+            }
+        });
     }
 
     /**

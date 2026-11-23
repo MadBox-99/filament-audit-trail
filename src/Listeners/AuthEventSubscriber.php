@@ -51,7 +51,7 @@ final readonly class AuthEventSubscriber
 
         $this->recorder->record(AuditEventType::LoginFailed, [
             'user_id' => $event->user?->getAuthIdentifier(),
-            'user_email' => is_string($email) ? $email : null,
+            'user_email' => is_string($email) ? mb_substr($email, 0, 255) : null,
         ]);
     }
 

@@ -7,6 +7,8 @@ namespace Madbox99\FilamentAuditTrail\Commands;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
 use InvalidArgumentException;
+use Madbox99\FilamentAuditTrail\Enums\AuditSource;
+use Madbox99\FilamentAuditTrail\Models\AuditEvent;
 use Madbox99\FilamentAuditTrail\Reconstruction\ReconstructionContext;
 use Madbox99\FilamentAuditTrail\Reconstruction\Reconstructor;
 use Madbox99\FilamentAuditTrail\Reconstruction\Rules\AccountCreatedRule;
@@ -28,7 +30,7 @@ final class ReconstructCommand extends Command
         {--rule=* : Only run these rules (by name)}
         {--sso-file= : Publisher OAuth token export (JSON)}
         {--since= : Ignore evidence before this time}
-        {--until= : Ignore evidence after this time (a bare date means its end)}
+        {--until= : Ignore evidence after this time (a bare date means its end; default: just before the earliest live event)}
         {--suggest : Suggest actor-column and sole-member tables}';
 
     protected $description = 'Reconstruct past audit events from real records (idempotent).';
@@ -83,6 +85,19 @@ final class ReconstructCommand extends Command
             }
 
             $rules = array_values(array_filter($rules, fn (Rule $rule): bool => in_array($rule->name(), $only, true)));
+        }
+
+        // Live recording already covers everything from its first event on: reconstructing
+        // that period again would duplicate it, so by default the evidence stops just before.
+        if ($until instanceof CarbonImmutable) {
+            $this->components->info(__('audit-trail::audit-trail.reconstruct.cutoff_explicit', ['time' => $until->format('Y-m-d H:i:s')]));
+        } else {
+            $firstLive = $this->firstLiveEvent();
+
+            if ($firstLive instanceof CarbonImmutable) {
+                $until = $firstLive->subMillisecond();
+                $this->components->info(__('audit-trail::audit-trail.reconstruct.cutoff_live', ['time' => $firstLive->format('Y-m-d H:i:s.v')]));
+            }
         }
 
         $context = new ReconstructionContext($since, $until);
@@ -206,6 +221,13 @@ final class ReconstructCommand extends Command
         $this->line(implode(PHP_EOL, $snippet));
 
         return self::SUCCESS;
+    }
+
+    private function firstLiveEvent(): ?CarbonImmutable
+    {
+        $first = AuditEvent::query()->where('source', AuditSource::Live->value)->min('occurred_at');
+
+        return (new ReconstructionContext)->parseTimestamp($first);
     }
 
     private function time(string $option, bool $endOfDay): ?CarbonImmutable
