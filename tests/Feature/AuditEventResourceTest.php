@@ -233,5 +233,13 @@ it('orders by occurred_at with millisecond precision, then by id, newest first',
     $tieFirst = auditRow(['occurred_at' => '2026-01-01 09:00:00.000', 'user_id' => $this->admin->id]);
     $tieSecond = auditRow(['occurred_at' => '2026-01-01 09:00:00.000', 'user_id' => $this->admin->id]);
 
-    listAs($this->admin, $this->teamA)->assertCanSeeTableRecords([$later, $earlier, $tieSecond, $tieFirst], inOrder: true);
+    $list = listAs($this->admin, $this->teamA);
+    $list->assertCanSeeTableRecords([$later, $earlier, $tieSecond, $tieFirst], inOrder: true);
+
+    // The tie-breaker must be explicit, not an accident of the database's scan order.
+    $orders = array_map(
+        fn (array $order): string => str($order['column'])->afterLast('.').' '.$order['direction'],
+        $list->instance()->getFilteredSortedTableQuery()->getQuery()->orders,
+    );
+    expect($orders)->toBe(['occurred_at desc', 'id desc']);
 });
