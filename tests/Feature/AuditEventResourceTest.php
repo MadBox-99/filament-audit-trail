@@ -32,10 +32,10 @@ beforeEach(function (): void {
     $this->admin = User::create(['name' => 'Ad', 'email' => 'ad@corp.test', 'is_admin' => true]);
     $this->admin->teams()->attach([$this->teamA->id, $this->teamB->id]);
 
-    $this->aEvent = auditRow(['team_id' => $this->teamA->id, 'user_id' => $this->member->id, 'event' => 'updated']);
-    $this->bEvent = auditRow(['team_id' => $this->teamB->id, 'user_id' => $this->bMember->id, 'event' => 'updated']);
-    $this->aLogin = auditRow(['team_id' => null, 'user_id' => $this->member->id, 'event' => 'login']);
-    $this->bLogin = auditRow(['team_id' => null, 'user_id' => $this->bMember->id, 'event' => 'login']);
+    $this->aEvent = auditRow(['team_id' => $this->teamA->id, 'user_id' => $this->member->id, 'user_email' => 'm@corp.test', 'event' => 'updated']);
+    $this->bEvent = auditRow(['team_id' => $this->teamB->id, 'user_id' => $this->bMember->id, 'user_email' => 'b@corp.test', 'event' => 'updated']);
+    $this->aLogin = auditRow(['team_id' => null, 'user_id' => $this->member->id, 'user_email' => 'm@corp.test', 'event' => 'login']);
+    $this->bLogin = auditRow(['team_id' => null, 'user_id' => $this->bMember->id, 'user_email' => 'b@corp.test', 'event' => 'login']);
 });
 
 function listAs(User $user, Team $tenant)
@@ -111,4 +111,31 @@ it('exports with the configured columns', function (): void {
     $columns = array_map(fn ($c) => $c->getName(), AuditEventExporter::getColumns());
 
     expect($columns)->toBe(['occurred_at', 'event', 'user_email', 'team_id', 'subject_type', 'subject_id', 'action', 'url', 'ip', 'source', 'inferred', 'evidence_key']);
+});
+
+it('does not leak other teams emails through the user filter', function (): void {
+    $table = listAs($this->member, $this->teamA)->instance()->getTable();
+    $filter = $table->getFilter('user_email');
+
+    expect($filter->getFormField()->getOptions())->toHaveKey('m@corp.test')->not->toHaveKey('b@corp.test')
+        ->and($filter->getFormField()->getSearchResults('corp'))->toHaveKey('m@corp.test')->not->toHaveKey('b@corp.test');
+
+    $teamFilter = listAs($this->admin, $this->teamA)->instance()->getTable()->getFilter('team_id');
+    expect($teamFilter->getFormField()->getOptions())->toBe([$this->teamA->id => 'A', $this->teamB->id => 'B']);
+});
+
+it('scopes the export query to the tenant for a non-admin', function (): void {
+    $ids = listAs($this->member, $this->teamA)->instance()->getTableQueryForExport()->pluck('id')->all();
+
+    expect($ids)->toContain($this->aEvent->id, $this->aLogin->id)
+        ->not->toContain($this->bEvent->id)
+        ->not->toContain($this->bLogin->id);
+});
+
+it('works under strict authorization', function (): void {
+    $this->actingAs($this->member);
+    Filament::setCurrentPanel('admin');
+
+    expect(AuditEventResource::canViewAny())->toBeTrue()
+        ->and(AuditEventResource::getViewAuthorizationResponse($this->aEvent)->allowed())->toBeTrue();
 });

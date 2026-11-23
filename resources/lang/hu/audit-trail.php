@@ -52,4 +52,18 @@ return [
     'export' => [
         'completed' => 'Az audit napló exportálása elkészült, :count sor.',
     ],
+    'export_columns' => [
+        'occurred_at' => 'Idő',
+        'event' => 'Esemény',
+        'user_email' => 'Felhasználó e-mail',
+        'team_id' => 'Csapat azonosító',
+        'subject_type' => 'Tárgy típusa',
+        'subject_id' => 'Tárgy azonosítója',
+        'action' => 'Akció',
+        'url' => 'URL',
+        'ip' => 'IP',
+        'source' => 'Forrás',
+        'inferred' => 'Levezetett',
+        'evidence_key' => 'Bizonyíték kulcs',
+    ],
 ];

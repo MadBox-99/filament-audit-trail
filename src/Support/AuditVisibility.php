@@ -8,8 +8,8 @@ use Filament\Facades\Filament;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Support\Facades\DB;
 use Madbox99\FilamentAuditTrail\FilamentAuditTrailPlugin;
+use Madbox99\FilamentAuditTrail\Models\AuditEvent;
 
 final class AuditVisibility
 {
@@ -53,7 +53,7 @@ final class AuditVisibility
             $q->where('team_id', $tenant->getKey())
                 ->orWhere(function (Builder $nullTeam) use ($tenant, $pivot): void {
                     $nullTeam->whereNull('team_id')
-                        ->whereIn('user_id', DB::table($pivot)->where('team_id', $tenant->getKey())->select('user_id'));
+                        ->whereIn('user_id', AuditEvent::query()->getConnection()->table($pivot)->where('team_id', $tenant->getKey())->select('user_id'));
                 });
         });
     }

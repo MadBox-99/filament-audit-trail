@@ -52,4 +52,18 @@ return [
     'export' => [
         'completed' => 'Your audit trail export has completed, :count rows.',
     ],
+    'export_columns' => [
+        'occurred_at' => 'Time',
+        'event' => 'Event',
+        'user_email' => 'User email',
+        'team_id' => 'Team ID',
+        'subject_type' => 'Subject type',
+        'subject_id' => 'Subject ID',
+        'action' => 'Action',
+        'url' => 'URL',
+        'ip' => 'IP',
+        'source' => 'Source',
+        'inferred' => 'Inferred',
+        'evidence_key' => 'Evidence key',
+    ],
 ];

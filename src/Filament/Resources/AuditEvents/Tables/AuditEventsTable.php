@@ -6,17 +6,20 @@ namespace Madbox99\FilamentAuditTrail\Filament\Resources\AuditEvents\Tables;
 
 use Filament\Actions\ExportAction;
 use Filament\Actions\ViewAction;
+use Filament\Facades\Filament;
 use Filament\Forms\Components\DatePicker;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\DB;
 use Madbox99\FilamentAuditTrail\Enums\AuditEventType;
 use Madbox99\FilamentAuditTrail\Enums\AuditSource;
 use Madbox99\FilamentAuditTrail\Filament\Exports\AuditEventExporter;
 use Madbox99\FilamentAuditTrail\Models\AuditEvent;
 use Madbox99\FilamentAuditTrail\Support\AuditVisibility;
+use Throwable;
 
 final class AuditEventsTable
 {
@@ -65,24 +68,26 @@ final class AuditEventsTable
                     ->options(AuditSource::class),
                 SelectFilter::make('user_email')
                     ->label(__('audit-trail::audit-trail.columns.user'))
-                    ->options(fn (): array => AuditEvent::query()
-                        ->select('user_email')
+                    ->searchable()
+                    ->getSearchResultsUsing(fn (string $search): array => self::scopedEvents()
+                        ->whereNotNull('user_email')
+                        ->where('user_email', 'like', '%'.$search.'%')
+                        ->distinct()
+                        ->orderBy('user_email')
+                        ->limit(50)
+                        ->pluck('user_email', 'user_email')
+                        ->all())
+                    ->getOptionLabelUsing(fn (mixed $value): ?string => is_string($value) ? $value : null)
+                    ->options(fn (): array => self::scopedEvents()
                         ->whereNotNull('user_email')
                         ->distinct()
                         ->orderBy('user_email')
-                        ->limit(200)
+                        ->limit(50)
                         ->pluck('user_email', 'user_email')
-                        ->all())
-                    ->searchable(),
+                        ->all()),
                 SelectFilter::make('team_id')
                     ->label(__('audit-trail::audit-trail.columns.team'))
-                    ->options(fn (): array => AuditEvent::query()
-                        ->select('team_id')
-                        ->whereNotNull('team_id')
-                        ->distinct()
-                        ->orderBy('team_id')
-                        ->pluck('team_id', 'team_id')
-                        ->all())
+                    ->options(fn (): array => self::teamOptions())
                     ->visible(fn (): bool => AuditVisibility::isAdmin(auth()->user())),
                 Filter::make('occurred_between')
                     ->label(__('audit-trail::audit-trail.filters.date_range'))
@@ -100,5 +105,52 @@ final class AuditEventsTable
             ->headerActions([
                 ExportAction::make()->exporter(AuditEventExporter::class),
             ]);
+    }
+
+    /**
+     * @return Builder<AuditEvent>
+     */
+    private static function scopedEvents(): Builder
+    {
+        $user = auth()->user();
+        $query = AuditEvent::query();
+
+        if ($user === null) {
+            return $query->whereRaw('1 = 0');
+        }
+
+        /** @var Builder<AuditEvent> */
+        return AuditVisibility::scope($query, $user, Filament::getTenant());
+    }
+
+    /**
+     * @return array<int|string, string>
+     */
+    private static function teamOptions(): array
+    {
+        /** @var array<int, int|string> $ids */
+        $ids = self::scopedEvents()
+            ->whereNotNull('team_id')
+            ->distinct()
+            ->orderBy('team_id')
+            ->pluck('team_id')
+            ->all();
+
+        $options = array_combine($ids, array_map(strval(...), $ids));
+
+        try {
+            /** @var string $teams */
+            $teams = config('audit-trail.reconstruct.teams_table', 'teams');
+
+            foreach (DB::table($teams)->whereIn('id', $ids)->pluck('name', 'id') as $id => $name) {
+                if (is_string($name) && $name !== '') {
+                    $options[$id] = $name;
+                }
+            }
+        } catch (Throwable) {
+            // No teams table or no name column: fall back to ids.
+        }
+
+        return $options;
     }
 }

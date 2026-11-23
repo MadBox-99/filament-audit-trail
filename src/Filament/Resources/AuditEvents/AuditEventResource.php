@@ -10,6 +10,7 @@ use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
+use Illuminate\Auth\Access\Response;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Madbox99\FilamentAuditTrail\Filament\Resources\AuditEvents\Pages\ListAuditEvents;
@@ -61,6 +62,17 @@ final class AuditEventResource extends Resource
     public static function canViewAny(): bool
     {
         return auth()->user() !== null;
+    }
+
+    public static function getViewAnyAuthorizationResponse(): Response
+    {
+        return auth()->user() !== null ? Response::allow() : Response::deny();
+    }
+
+    public static function getViewAuthorizationResponse(Model $record): Response
+    {
+        // Visibility is enforced by getEloquentQuery() scoping; works with strictAuthorization().
+        return auth()->user() !== null ? Response::allow() : Response::deny();
     }
 
     public static function canCreate(): bool
