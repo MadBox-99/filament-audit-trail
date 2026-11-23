@@ -57,5 +57,7 @@ return [
         // export-sso: a token counts as a sign-in only if an authorization code of the same
         // user and client expires within this many minutes after it (Passport code TTL 10 + 1).
         'sso_auth_code_window_minutes' => 11,
+        // Passport's authorization code lifetime: a code was issued at expires_at minus this.
+        'sso_auth_code_ttl_minutes' => 10,
     ],
 ];

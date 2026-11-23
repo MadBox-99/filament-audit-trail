@@ -224,6 +224,27 @@ final class ReconstructionContext
     }
 
     /**
+     * The teams table (`reconstruct.teams_table`) the bootstrap check reads: missing
+     * table or columns mean every bootstrap check is skipped.
+     *
+     * @return list<array{table: string, column: string|null}>
+     */
+    public function teamsTableProblems(): array
+    {
+        $table = (string) config('audit-trail.reconstruct.teams_table', 'teams');
+        $schema = $this->connection()->getSchemaBuilder();
+
+        if (! $schema->hasTable($table)) {
+            return [['table' => $table, 'column' => null]];
+        }
+
+        return array_values(array_map(
+            fn (string $column): array => ['table' => $table, 'column' => $column],
+            array_diff(['id', 'created_at'], $schema->getColumnListing($table)),
+        ));
+    }
+
+    /**
      * Whether a record of the team was made in the seconds after the team itself
      * (`team_creation_grace_seconds`): data the system seeds for a new team, not
      * a person's work. Null when the team's creation time is unknown.

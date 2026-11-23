@@ -79,9 +79,9 @@ function insertToken(string $id, ?int $userId, string $clientId, string $created
     }
 }
 
-function insertAuthCode(string $id, int $userId, string $clientId, string $expiresAt): void
+function insertAuthCode(string $id, int $userId, string $clientId, string $expiresAt, bool $revoked = true): void
 {
-    DB::table('oauth_auth_codes')->insert(['id' => $id, 'user_id' => $userId, 'client_id' => $clientId, 'revoked' => true, 'expires_at' => $expiresAt]);
+    DB::table('oauth_auth_codes')->insert(['id' => $id, 'user_id' => $userId, 'client_id' => $clientId, 'revoked' => $revoked, 'expires_at' => $expiresAt]);
 }
 
 /**
@@ -203,6 +203,31 @@ describe('audit-trail:export-sso', function (): void {
         expect(array_column(json_decode(File::get($this->output), true), 'token_id'))->toBe(['t1']);
     });
 
+    it('ignores authorization codes that were never exchanged (not revoked)', function (): void {
+        createPassportTables();
+        $user = insertUser();
+        insertClient('c', ['redirect_uris' => json_encode(['https://crm.cegem360.eu/cb']), 'grant_types' => '[]']);
+        insertToken('t1', $user, 'c', '2026-03-01 09:10:00', withCode: false);
+        insertAuthCode('code-open', $user, 'c', '2026-03-01 09:19:00', revoked: false);
+
+        $this->artisan('audit-trail:export-sso', ['--output' => $this->output])->assertExitCode(0);
+
+        expect(json_decode(File::get($this->output), true))->toBe([]);
+    });
+
+    it('does not give the code to a refreshed token made just before the authorization', function (): void {
+        createPassportTables();
+        $user = insertUser();
+        insertClient('c', ['redirect_uris' => json_encode(['https://crm.cegem360.eu/cb']), 'grant_types' => '[]']);
+        insertToken('t-refresh', $user, 'c', '2026-03-01 09:09:30', withCode: false); // refresh, 30 s before the authorize
+        insertToken('t-signin', $user, 'c', '2026-03-01 09:10:05', withCode: false);
+        insertAuthCode('code-1', $user, 'c', '2026-03-01 09:20:00'); // issued 09:10:00 (TTL 10 min)
+
+        $this->artisan('audit-trail:export-sso', ['--output' => $this->output])->assertExitCode(0);
+
+        expect(array_column(json_decode(File::get($this->output), true), 'auth_code_id', 'token_id'))->toBe(['t-signin' => 'code-1']);
+    });
+
     it('honours the configured authorization code window', function (): void {
         config(['audit-trail.reconstruct.sso_auth_code_window_minutes' => 5]);
         createPassportTables();
@@ -289,16 +314,28 @@ describe('sso_login rule', function (): void {
             ->and($report->rule('sso_login')['found'])->toBe(0);
     });
 
-    it('matches by email, case-insensitively, when the uuid is missing or unknown', function (): void {
-        $a = insertUser(['email' => 'A@Corp.test']);
-        $b = insertUser(['email' => 'b@corp.test', 'uuid' => 'u-b']);
+    it('matches by email, case-insensitively, when the entry has no uuid or the local user has none', function (): void {
+        $a = insertUser(['email' => 'A@Corp.test', 'uuid' => 'u-a']);
+        $b = insertUser(['email' => 'b@corp.test']);
 
         reconstruct([new SsoLoginRule(ssoFile([
             ssoEntry('t1', null, 'a@corp.TEST', 'crm.cegem360.eu', '2026-03-01T09:10:00+00:00'),
-            ssoEntry('t2', 'u-unknown', 'B@corp.test', 'crm.cegem360.eu', '2026-03-01T10:10:00+00:00'),
+            ssoEntry('t2', 'u-b', 'B@corp.test', 'crm.cegem360.eu', '2026-03-01T10:10:00+00:00'),
         ]))]);
 
         expect(AuditEvent::query()->orderBy('evidence_key')->pluck('user_id')->all())->toBe([$a, $b]);
+    });
+
+    it('rejects an email match whose local uuid contradicts the entry uuid', function (): void {
+        // The publisher account's email was reused locally by someone else.
+        insertUser(['email' => 'b@corp.test', 'uuid' => 'u-b']);
+
+        $report = reconstruct([new SsoLoginRule(ssoFile([
+            ssoEntry('t2', 'u-unknown', 'B@corp.test', 'crm.cegem360.eu', '2026-03-01T10:10:00+00:00'),
+        ]))]);
+
+        expect($report->rule('sso_login')['rejected'])->toBe(['uuid_mismatch' => 1])
+            ->and(AuditEvent::query()->count())->toBe(0);
     });
 
     it('matches by email when the users table has no uuid column', function (): void {

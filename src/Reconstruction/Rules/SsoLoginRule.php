@@ -16,7 +16,8 @@ use Throwable;
  * The publisher's OAuth access tokens (the `audit-trail:export-sso` file) →
  * a login at the exact time the token was issued, for the tokens of this app
  * (`app_host` = the host of `app.url`). Users are matched by uuid, then by
- * email; tokens of no known user are rejected as `unknown_user`.
+ * email unless the local user's uuid contradicts the entry's (`uuid_mismatch`);
+ * tokens of no known user are rejected as `unknown_user`.
  */
 final class SsoLoginRule implements Rule
 {
@@ -75,8 +76,22 @@ final class SsoLoginRule implements Rule
                 continue;
             }
 
-            $userId = ($entry['user_uuid'] !== null ? $byUuid[$entry['user_uuid']] ?? null : null)
-                ?? ($entry['user_email'] !== null ? $byEmail[mb_strtolower($entry['user_email'])] ?? null : null);
+            $uuid = $entry['user_uuid'];
+            $userId = $uuid !== null ? $byUuid[$uuid] ?? null : null;
+            $rejection = null;
+
+            if ($userId === null && $entry['user_email'] !== null) {
+                [$emailUserId, $localUuid] = $byEmail[mb_strtolower($entry['user_email'])] ?? [null, null];
+
+                // Same email, different person: the publisher account's email was reused here.
+                if ($emailUserId !== null && $uuid !== null && $localUuid !== null && $localUuid !== $uuid) {
+                    $rejection = 'uuid_mismatch';
+                } else {
+                    $userId = $emailUserId;
+                }
+            }
+
+            $rejection ??= $userId === null ? 'unknown_user' : null;
 
             yield new EvidenceRecord(
                 type: AuditEventType::Login,
@@ -96,34 +111,40 @@ final class SsoLoginRule implements Rule
                     'file' => basename($this->path),
                 ],
                 evidenceKey: 'sso:'.$entry['token_id'],
-                rejection: $userId === null ? 'unknown_user' : null,
+                rejection: $rejection,
             );
         }
     }
 
     /**
-     * @return array{array<string, int>, array<string, int>} uuid => id, lowercased email => id
+     * @return array{array<string, int>, array<string, array{int, string|null}>} uuid => id, lowercased email => [id, uuid]
      */
     private function userIndex(ReconstructionContext $ctx): array
     {
         $table = $ctx->userTable();
         $hasUuid = $ctx->connection()->getSchemaBuilder()->hasColumn($table, 'uuid');
-        $byUuid = [];
-        $byEmail = [];
+        /** @var array<int, string> $uuids */
+        $uuids = [];
 
         if ($hasUuid) {
             foreach ($ctx->connection()->table($table)->select(['id', 'uuid'])->whereNotNull('uuid')->orderBy('id')->cursor() as $row) {
                 $row = (array) $row;
 
                 if (is_numeric($row['id']) && is_string($row['uuid']) && $row['uuid'] !== '') {
-                    $byUuid[$row['uuid']] ??= (int) $row['id'];
+                    $uuids[(int) $row['id']] = $row['uuid'];
                 }
             }
         }
 
+        $byUuid = [];
+        foreach ($uuids as $id => $uuid) {
+            $byUuid[$uuid] ??= $id;
+        }
+
+        $byEmail = [];
         foreach ($ctx->users() as $id => $user) {
             if ($user['email'] !== null) {
-                $byEmail[mb_strtolower($user['email'])] ??= $id;
+                $byEmail[mb_strtolower($user['email'])] ??= [$id, $uuids[$id] ?? null];
             }
         }
 

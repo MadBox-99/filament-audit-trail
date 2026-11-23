@@ -78,6 +78,14 @@ it('warns about configured tables and columns that do not exist', function (): v
         ->assertExitCode(0);
 });
 
+it('warns when the teams table used for the bootstrap check does not exist', function (): void {
+    config(['audit-trail.reconstruct.actor_columns' => ['posts' => 'user_id'], 'audit-trail.reconstruct.teams_table' => 'workspaces']);
+
+    $this->artisan('audit-trail:reconstruct', ['--dry-run' => true, '--rule' => ['actor_columns']])
+        ->expectsOutputToContain('actor_columns: workspaces')
+        ->assertExitCode(0);
+});
+
 it('prints no configuration warning for a valid configuration', function (): void {
     config(['audit-trail.reconstruct.actor_columns' => ['posts' => 'user_id'], 'audit-trail.reconstruct.sole_member_tables' => ['posts']]);
 

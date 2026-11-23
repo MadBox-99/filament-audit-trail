@@ -52,7 +52,7 @@ final class SoleMemberTeamRule implements ChecksConfiguration, Rule
             }
         }
 
-        return $problems;
+        return [...$problems, ...$ctx->teamsTableProblems()];
     }
 
     public function collect(ReconstructionContext $ctx): iterable

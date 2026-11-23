@@ -40,7 +40,9 @@ final class ActorColumnsRule implements ChecksConfiguration, Rule
             }
         }
 
-        return $problems;
+        return (array) config('audit-trail.reconstruct.actor_columns', []) === []
+            ? []
+            : [...$problems, ...$ctx->teamsTableProblems()];
     }
 
     public function collect(ReconstructionContext $ctx): iterable

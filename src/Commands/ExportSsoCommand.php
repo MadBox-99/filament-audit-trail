@@ -85,8 +85,10 @@ final class ExportSsoCommand extends Command
         $skipped = 0;
         $withoutCode = 0;
         $timezone = ReconstructionContext::timezone();
-        $codes = $this->authCodes($context);
+        /** @var list<array{key: string, at: CarbonImmutable, entry: array<string, string|null>}> $candidates */
+        $candidates = [];
         $window = max(0, (int) config('audit-trail.reconstruct.sso_auth_code_window_minutes', 11));
+        $ttl = min($window, max(0, (int) config('audit-trail.reconstruct.sso_auth_code_ttl_minutes', 10)));
 
         foreach ($rows as $row) {
             $row = (array) $row;
@@ -105,24 +107,31 @@ final class ExportSsoCommand extends Command
                 continue;
             }
 
-            // Only a token issued for an authorization code proves a sign-in; a
-            // refreshed token has no code of its own.
-            $code = $this->claimCode($codes, (string) $row['token_user_id'].'|'.(string) $row['token_client_id'], $createdAt, $window);
+            $candidates[] = [
+                'key' => (string) $row['token_user_id'].'|'.(string) $row['token_client_id'],
+                'at' => $createdAt,
+                'entry' => [
+                    'token_id' => (string) $row['token_id'],
+                    'user_uuid' => isset($row['user_uuid']) && is_string($row['user_uuid']) && $row['user_uuid'] !== '' ? $row['user_uuid'] : null,
+                    'user_email' => is_string($row['user_email']) ? $row['user_email'] : null,
+                    'app_host' => $host,
+                    'created_at' => $createdAt->setTimezone($timezone)->toIso8601String(),
+                ],
+            ];
+        }
 
-            if ($code === null) {
+        // Only a token issued for an authorization code proves a sign-in; a
+        // refreshed token has no code of its own.
+        $assigned = $this->assignCodes($this->authCodes($context), $candidates, $window, $ttl);
+
+        foreach ($candidates as $index => $candidate) {
+            if (! isset($assigned[$index])) {
                 $withoutCode++;
 
                 continue;
             }
 
-            $entries[] = [
-                'token_id' => (string) $row['token_id'],
-                'user_uuid' => isset($row['user_uuid']) && is_string($row['user_uuid']) && $row['user_uuid'] !== '' ? $row['user_uuid'] : null,
-                'user_email' => is_string($row['user_email']) ? $row['user_email'] : null,
-                'app_host' => $host,
-                'created_at' => $createdAt->setTimezone($timezone)->toIso8601String(),
-                'auth_code_id' => $code,
-            ];
+            $entries[] = [...$candidate['entry'], 'auth_code_id' => $assigned[$index]];
         }
 
         try {
@@ -163,6 +172,8 @@ final class ExportSsoCommand extends Command
             ->select(['id', 'user_id', 'client_id', 'expires_at'])
             ->whereNotNull('user_id')
             ->whereNotNull('expires_at')
+            // Passport revokes a code when it is exchanged for a token.
+            ->when($context->connection()->getSchemaBuilder()->hasColumn('oauth_auth_codes', 'revoked'), fn ($query) => $query->where('revoked', true))
             ->orderBy('expires_at')
             ->orderBy('id')
             ->cursor();
@@ -180,30 +191,57 @@ final class ExportSsoCommand extends Command
     }
 
     /**
-     * Takes the earliest unused code of the user and client that expires within
-     * [token created_at, created_at + window]; a code is exchanged for one token only.
+     * Gives each code (earliest expiry first) to one token of the same user and
+     * client created in [expires_at - window, expires_at]: the earliest one made
+     * at or after the code was issued (expires_at - ttl), else the earliest in
+     * the window. So a token refreshed just before a sign-in cannot take its code.
      *
      * @param  array<string, array<int, array{string, CarbonImmutable}>>  $codes
+     * @param  list<array{key: string, at: CarbonImmutable, entry: array<string, string|null>}>  $candidates  in created_at order
+     * @return array<int, string> candidate index => code id
      */
-    private function claimCode(array &$codes, string $key, CarbonImmutable $createdAt, int $window): ?string
+    private function assignCodes(array $codes, array $candidates, int $window, int $ttl): array
     {
-        $until = $createdAt->addMinutes($window);
-
-        foreach ($codes[$key] ?? [] as $index => [$id, $expiresAt]) {
-            if ($expiresAt->lt($createdAt)) {
-                continue;
-            }
-
-            if ($expiresAt->gt($until)) {
-                return null;
-            }
-
-            unset($codes[$key][$index]);
-
-            return $id;
+        /** @var array<string, list<int>> $byKey */
+        $byKey = [];
+        foreach ($candidates as $index => $candidate) {
+            $byKey[$candidate['key']][] = $index;
         }
 
-        return null;
+        $assigned = [];
+
+        foreach ($codes as $key => $keyCodes) {
+            foreach ($keyCodes as [$id, $expiresAt]) {
+                $from = $expiresAt->subMinutes($window);
+                $issued = $expiresAt->subMinutes($ttl);
+                $fallback = null;
+                $chosen = null;
+
+                foreach ($byKey[$key] ?? [] as $index) {
+                    $at = $candidates[$index]['at'];
+
+                    if (isset($assigned[$index]) || $at->lt($from) || $at->gt($expiresAt)) {
+                        continue;
+                    }
+
+                    if ($at->gte($issued)) {
+                        $chosen = $index;
+
+                        break;
+                    }
+
+                    $fallback ??= $index;
+                }
+
+                $chosen ??= $fallback;
+
+                if ($chosen !== null) {
+                    $assigned[$chosen] = $id;
+                }
+            }
+        }
+
+        return $assigned;
     }
 
     /**
